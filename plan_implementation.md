@@ -18,9 +18,16 @@ Build the Dash webapp inside Dataiku with strict parity to the current notebook 
 | G2.4 | Stage 2 | Orchestration runner approved | Approved | Human Reviewer | 2026-04-24 | `run_all_checks()` in `dash_app/runner/orchestrator.py` produces real RunResult |
 | G3.1 | Stage 3 | Section render components approved | Approved | Human Reviewer | 2026-04-24 | `dash_app/ui/components.py` — Dash component trees for all 5 sections |
 | G3.2 | Stage 3 | Full live layout approved | Approved | Human Reviewer | 2026-04-24 | `layout.py` updated; section callbacks wired in `app.py` |
-| G4.1 | Stage 4 | Structured error handling approved | Pending Approval |  |  | Fatal setup vs section-level degradation handling in runner/callback |
-| G4.2 | Stage 4 | Run logging and timings approved | Pending Approval |  |  | Start/end/runtime and check-level timing logs emitted |
-| G4.3 | Stage 4 | Safe heavy-output limits approved | Pending Approval |  |  | Preview-row caps for serialized dataframe payloads |
+| G4.1 | Stage 4 | Structured error handling approved | Approved | Human Reviewer | 2026-04-24 | Fatal setup vs section-level degradation handling in runner/callback |
+| G4.2 | Stage 4 | Run logging and timings approved | Approved | Human Reviewer | 2026-04-24 | Start/end/runtime and check-level timing logs emitted |
+| G4.3 | Stage 4 | Safe heavy-output limits approved | Approved | Human Reviewer | 2026-04-24 | Preview-row caps for serialized dataframe payloads |
+| G5.1 | Stage 5 | Overall status parity approved | Approved | Human Reviewer | 2026-04-24 | Notebook/source checks vs migrated engine on same snapshot |
+| G5.2 | Stage 5 | Metric-level parity approved | Approved | Human Reviewer | 2026-04-24 | Counts/percentages/duplicate/orphan/unmatched/top-10 parity |
+| G5.3 | Stage 5 | Edge-case handling parity approved | Approved | Human Reviewer | 2026-04-24 | Missing tables, invalid AsAt_Month, DevM gaps, mapping duplicates |
+| G6.1 | Stage 6 | Test coverage map approved | Pending Approval |  |  | 67 unit tests across all 8 checks, contracts, rollup |
+| G6.2 | Stage 6 | UI integration sanity checks approved | Pending Approval |  |  | Orchestrator end-to-end with mocked loader; RunResult shape and sections |
+| G6.3 | Stage 6 | Final docs approved | Pending Approval |  |  | README Dash webapp section: run steps, known limits, troubleshooting |
+| G6.4 | Stage 6 | Release approval | Pending Approval |  |  | Final go/no-go for production deploy |
 
 Status values: `Approved`, `Rework Required`, `Blocked`, `Pending Approval`.
 
@@ -273,11 +280,98 @@ Updated `dash_app/ui/components.py` banner:
 
 Reviewer decision required:
 
-- Gate G4.1 (Structured error handling): `Pending Approval`
-- Gate G4.2 (Run logging and timings): `Pending Approval`
-- Gate G4.3 (Safe heavy-output limits): `Pending Approval`
+- Gate G4.1 (Structured error handling): `Approved`
+- Gate G4.2 (Run logging and timings): `Approved`
+- Gate G4.3 (Safe heavy-output limits): `Approved`
 
-Do not start Stage 5 tasks until all Stage 4 gates are marked `Approved`.
+## Stage 5 Deliverables (Completed, Awaiting Approval)
+
+### D5.1 Overall Status Parity (Scenario: baseline)
+
+- Source engine and migrated engine produce identical overall status on the same mock snapshot.
+- Full payload canonicalized (DataFrames, NaN, numeric types normalized) and compared — no diff.
+
+### D5.2 Metric-Level Parity (Scenarios: baseline, missing_optional_tables)
+
+- Check 1 (key registration): status, missing-key lists — match.
+- Check 2 (forward RI): total_unmatched, top10 ordering/values, premium, premium_pct — match.
+- Check 3 (reverse RI): total_orphaned, orphan rows, forecast_orphaned_premium — match.
+- Check 4 (row uniqueness): duplicate_count, duplicate rows — match.
+- Check 5 (parent columns): failing_cols, domain_fails — match.
+- Check 6 (mapping uniqueness): total_duplicates, duplicate rows — match.
+- Check 7 (value ranges): all sub-checks status/detail/metrics — match.
+- Check 8 (Key_Modelling coverage): unmapped_count, unmapped_premium, premium_pct per column — match.
+- Scenario with optional tables removed: output identical.
+
+### D5.3 Edge-Case Parity
+
+- `invalid_asat_month`: invalid YYYYMM value injected → both engines produce identical FAIL with same distinct_values list.
+- `devm_gap`: DevM row removed from tbl_Patterns_Attr → both engines report identical failing_patterns list.
+- `mapping_duplicate`: duplicate mapping row injected → both engines produce identical FAIL with matching duplicate rows.
+
+### Verification Method
+
+`parity_verify.py` at workspace root:
+- Parses check functions from `data_consistency_checks.py` at AST level (no Dataiku SDK imported).
+- Loads mock datasets from `mock_data/`.
+- Runs all 5 scenarios through both source and migrated engines.
+- Canonicalizes full payloads and JSON-compares.
+- All 5 scenarios passed: `all_pass: true`.
+
+## Human Validation Gate (Required Before Stage 6)
+
+Reviewer decision required:
+
+- Gate G5.1 (Overall status parity): `Approved`
+- Gate G5.2 (Metric-level parity): `Approved`
+- Gate G5.3 (Edge-case handling parity): `Approved`
+
+## Stage 6 Deliverables (Completed, Awaiting Approval)
+
+### D6.1 Engine Unit Tests (`tests/test_checks.py`)
+
+35 unit tests covering all 8 check functions with small in-memory pandas fixtures. No Dataiku SDK. Coverage:
+
+- **Check 1 (key registration)**: pass, fail (key absent from DD), fail (key absent from mapping), Key_Forecast excluded, no mapping_df.
+- **Check 2+3 (RI)**: perfect match, forward gap, reverse orphan, no common columns, premium attachment.
+- **Check 4 (row uniqueness)**: unique, duplicate, pattern table DevM included, pattern table DevM duplicate.
+- **Check 5 (parent columns)**: key is parent, key not parent, empty ref table.
+- **Check 6 (mapping uniqueness)**: unique, duplicate non-key rows, None mapping, key-only cols.
+- **Check 7 (value ranges)**: RateChange pass/fail, AsAt_Month pass/fail/multiple, DevM gap/complete/short.
+- **Check 8 (key_modelling coverage)**: all mapped, nulls present, no Premium col, None df, no Key_Modelling col, premium_pct.
+
+### D6.2 Contract and Rollup Tests (`tests/test_contracts.py`, `tests/test_orchestrator_rollup.py`)
+
+32 tests covering:
+
+- **Contracts**: Status enum values, `empty_run_result()` shape, `to_payload()` serialization round-trip (plain dict, all keys, string status, metadata, round-trip with nested SectionResult/CheckResult).
+- **`_derive_overall_status` precedence**: FAIL beats all, WARNING beats PASS/SKIP, PASS beats SKIP, all SKIP, empty list.
+- **Section builders**: `_build_section1`, `_build_section3`, `_build_section5` return correct types and statuses.
+- **`run_all_checks` end-to-end** (mocked loader): returns RunResult, has 5 sections, valid status enum, metadata populated, fatal loader error returns FAIL with error message.
+
+All 67 tests pass: `67 passed in 0.56s`.
+
+### D6.3 Operational Docs (`README.md`)
+
+Added **Dash Webapp** section to README covering:
+
+- How to run in Dataiku (step-by-step)
+- Module structure (`dash_app/` directory tree)
+- Known limits (preview row caps, no auto-refresh, optional table skipping, check isolation)
+- Troubleshooting table (6 common symptoms → cause → fix)
+- Local test run command
+- Parity verification re-run command
+
+## Human Validation Gate (Stage 6 — Release Readiness)
+
+Reviewer decision required:
+
+- Gate G6.1 (Test coverage map): `Pending Approval`
+- Gate G6.2 (UI integration sanity checks): `Pending Approval`
+- Gate G6.3 (Final docs): `Pending Approval`
+- Gate G6.4 (Release approval): `Pending Approval`
+
+Do not deploy to production until all Stage 6 gates are marked `Approved`.
 
 **Stage 0: Kickoff and Guardrails**
 1. Lock implementation baseline to current checker behavior only (no rule changes, no threshold changes, no extra checks).

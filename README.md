@@ -348,5 +348,75 @@ Tables where DevM is part of uniqueness key:
 For issues or questions:
 - Check that all required `tbl_*` datasets exist
 - Verify `tbl_DetailedData_Agg` recipe has been built
+
+---
+
+## Dash Webapp (Interactive UI)
+
+The `dash_app/` directory contains a Dataiku-hosted Dash webapp that provides an interactive version of all checks above. It is behavior-identical to the original `data_consistency_checks.py` notebook tool.
+
+### Running in Dataiku
+
+1. Open the **PAT Data** Dataiku project.
+2. Navigate to **Webapps** → **PAT Data Consistency Tool**.
+3. Click **Run** to start the webapp backend.
+4. Click the **Run Checks** button in the UI to execute all 8 checks against the project's current datasets.
+5. Results appear immediately — each section corresponds to one check group.
+
+No parameters are required. The app reads live project datasets on each run.
+
+### Module Structure
+
+```
+dash_app/
+  app.py                   # Dash app init, layout wiring, callbacks
+  engine/
+    contracts.py           # Typed payload schema (Status, CheckResult, SectionResult, RunResult)
+    helpers.py             # Pure column classification helpers (no Dataiku dependency)
+    checks.py              # All 8 check functions (verbatim from data_consistency_checks.py)
+    loader.py              # Dataset loading and classification (Dataiku SDK calls here only)
+  runner/
+    orchestrator.py        # Orchestrates checks → typed RunResult; run_all_checks() entry point
+  ui/
+    layout.py              # Dash layout definition
+    components.py          # Component renderers for each section and banner
+```
+
+### Known Limits
+
+- **Preview rows**: Each check section displays at most 10 rows for top-N tables and 20 rows for detail tables. Full data is not returned to the browser.
+- **No auto-refresh**: The app does not poll for data changes. Click **Run Checks** to re-run.
+- **tbl_DetailedData_Agg**: The loader creates/updates a Dataiku Group recipe to pre-aggregate `tbl_DetailedData`. The recipe must be buildable within the project's compute environment.
+- **Optional tables**: If `tbl_Trend`, `tbl_Weight_HistYears`, or other optional tables are absent, their checks are silently skipped (status: SKIP).
+- **Check isolation**: If a single check throws an unexpected exception, that section is marked with a degradation warning and other sections are unaffected.
+
+### Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| "Fatal setup error" banner | `tbl_DetailedData` missing or Dataiku SDK unavailable | Verify dataset exists and webapp is running inside Dataiku |
+| Section shows SKIP with warning | Check raised an unexpected exception | Check webapp logs; look for `Check failed:` log lines |
+| "tbl_DetailedData not found" | `classify_tables` returned no DetailedData | Confirm `tbl_DetailedData` is a dataset in the project |
+| Blank banner, no sections | App not yet run | Click **Run Checks** |
+| DevM check unexpectedly FAILs | Pattern table missing rows or DevM starts at wrong value | Verify `tbl_Patterns_*` tables have complete DevM sequences 1–120 |
+
+### Running Tests Locally
+
+```bash
+# From workspace root, with the virtual environment activated:
+.venv/bin/python -m pytest tests/ -v
+```
+
+All 67 tests should pass. Tests cover all 8 check functions, the payload contracts, and the orchestrator rollup logic. No Dataiku SDK or live datasets are required.
+
+### Parity Verification
+
+To re-run the automated parity harness (source notebook vs. migrated Dash engine):
+
+```bash
+.venv/bin/python parity_verify.py
+```
+
+Expected output: `{"all_pass": true, ...}` with all 5 scenarios passing.
 - Review the technical specification: `DataConsistencyTool_Spec_v1.md`
 - Consult `PAT_utils.py` for utility functions
