@@ -125,7 +125,7 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
         creator = project.new_recipe("grouping")
         creator.set_name("compute_tbl_DetailedData_Agg")
         creator.with_input("tbl_DetailedData")
-        creator.with_output("tbl_DetailedData_Agg")
+        creator.with_new_output("tbl_DetailedData_Agg","filesystem_managed")
         recipe = creator.create()
     else:
         recipe = project.get_recipe("compute_tbl_DetailedData_Agg")

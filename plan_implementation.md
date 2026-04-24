@@ -24,10 +24,10 @@ Build the Dash webapp inside Dataiku with strict parity to the current notebook 
 | G5.1 | Stage 5 | Overall status parity approved | Approved | Human Reviewer | 2026-04-24 | Notebook/source checks vs migrated engine on same snapshot |
 | G5.2 | Stage 5 | Metric-level parity approved | Approved | Human Reviewer | 2026-04-24 | Counts/percentages/duplicate/orphan/unmatched/top-10 parity |
 | G5.3 | Stage 5 | Edge-case handling parity approved | Approved | Human Reviewer | 2026-04-24 | Missing tables, invalid AsAt_Month, DevM gaps, mapping duplicates |
-| G6.1 | Stage 6 | Test coverage map approved | Pending Approval |  |  | 67 unit tests across all 8 checks, contracts, rollup |
-| G6.2 | Stage 6 | UI integration sanity checks approved | Pending Approval |  |  | Orchestrator end-to-end with mocked loader; RunResult shape and sections |
-| G6.3 | Stage 6 | Final docs approved | Pending Approval |  |  | README Dash webapp section: run steps, known limits, troubleshooting |
-| G6.4 | Stage 6 | Release approval | Pending Approval |  |  | Final go/no-go for production deploy |
+| G6.1 | Stage 6 | Test coverage map approved | Approved | Human Reviewer | 2026-04-24 | 67 unit tests across all 8 checks, contracts, rollup |
+| G6.2 | Stage 6 | UI integration sanity checks approved | Approved | Human Reviewer | 2026-04-24 | Orchestrator end-to-end with mocked loader; RunResult shape and sections |
+| G6.3 | Stage 6 | Final docs approved | Approved | Human Reviewer | 2026-04-24 | README Dash webapp section: run steps, known limits, troubleshooting |
+| G6.4 | Stage 6 | Release approval | Approved | Human Reviewer | 2026-04-24 | Final go/no-go for production deploy |
 
 Status values: `Approved`, `Rework Required`, `Blocked`, `Pending Approval`.
 
@@ -366,12 +366,12 @@ Added **Dash Webapp** section to README covering:
 
 Reviewer decision required:
 
-- Gate G6.1 (Test coverage map): `Pending Approval`
-- Gate G6.2 (UI integration sanity checks): `Pending Approval`
-- Gate G6.3 (Final docs): `Pending Approval`
-- Gate G6.4 (Release approval): `Pending Approval`
+- Gate G6.1 (Test coverage map): `Approved`
+- Gate G6.2 (UI integration sanity checks): `Approved`
+- Gate G6.3 (Final docs): `Approved`
+- Gate G6.4 (Release approval): `Approved`
 
-Do not deploy to production until all Stage 6 gates are marked `Approved`.
+All Stage 6 gates approved. Project is cleared for production deployment.
 
 **Stage 0: Kickoff and Guardrails**
 1. Lock implementation baseline to current checker behavior only (no rule changes, no threshold changes, no extra checks).
