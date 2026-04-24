@@ -16,8 +16,11 @@ Build the Dash webapp inside Dataiku with strict parity to the current notebook 
 | G2.2 | Stage 2 | Column/key helpers module approved | Approved | Human Reviewer | 2026-04-24 | `dash_app/engine/helpers.py` — migrated from `data_consistency_checks.py` |
 | G2.3 | Stage 2 | Check functions module approved | Approved | Human Reviewer | 2026-04-24 | `dash_app/engine/checks.py` — all 7 check functions, zero semantic changes |
 | G2.4 | Stage 2 | Orchestration runner approved | Approved | Human Reviewer | 2026-04-24 | `run_all_checks()` in `dash_app/runner/orchestrator.py` produces real RunResult |
-| G3.1 | Stage 3 | Section render components approved | Pending Approval |  |  | `dash_app/ui/components.py` — Dash component trees for all 5 sections |
-| G3.2 | Stage 3 | Full live layout approved | Pending Approval |  |  | `layout.py` updated; section callbacks wired in `app.py` |
+| G3.1 | Stage 3 | Section render components approved | Approved | Human Reviewer | 2026-04-24 | `dash_app/ui/components.py` — Dash component trees for all 5 sections |
+| G3.2 | Stage 3 | Full live layout approved | Approved | Human Reviewer | 2026-04-24 | `layout.py` updated; section callbacks wired in `app.py` |
+| G4.1 | Stage 4 | Structured error handling approved | Pending Approval |  |  | Fatal setup vs section-level degradation handling in runner/callback |
+| G4.2 | Stage 4 | Run logging and timings approved | Pending Approval |  |  | Start/end/runtime and check-level timing logs emitted |
+| G4.3 | Stage 4 | Safe heavy-output limits approved | Pending Approval |  |  | Preview-row caps for serialized dataframe payloads |
 
 Status values: `Approved`, `Rework Required`, `Blocked`, `Pending Approval`.
 
@@ -224,10 +227,57 @@ Updated `dash_app/app.py`:
 
 Reviewer decision required:
 
-- Gate G3.1 (Section render components): `Pending Approval`
-- Gate G3.2 (Full live layout): `Pending Approval`
+- Gate G3.1 (Section render components): `Approved`
+- Gate G3.2 (Full live layout): `Approved`
 
-Do not start Stage 4 tasks until all Stage 3 gates are marked `Approved`.
+## Stage 4 Deliverables (Completed, Awaiting Approval)
+
+### D4.1 Structured Error Handling
+
+Updated `dash_app/runner/orchestrator.py`:
+
+- Fatal setup errors are isolated in `run_all_checks()` around dataset load/classification.
+- Fatal setup failure returns `RunResult(status=FAIL, sections=[], errors=[...])` with metadata populated.
+- Each check function executes via `_timed_check(...)` wrapper with exception capture.
+- Per-check failures degrade only the affected section(s) rather than crashing the run.
+- Section-level degradations are flagged via `_with_section_warning(...)` and surfaced in payload warnings.
+- If degradations occur and no FAIL exists, overall run status is elevated from PASS/SKIP to WARNING.
+
+Updated `dash_app/app.py`:
+
+- Callback-level guard wraps `run_all_checks()`.
+- Unhandled callback exceptions produce a fail-safe `RunResult` with explicit error message.
+
+### D4.2 Run Logging and Timing Observability
+
+Updated `dash_app/runner/orchestrator.py` logging:
+
+- `Run start` and `Run end` log lines with status, dataset count, runtime, warning count.
+- Each check logs `Check start` / `Check end` with elapsed milliseconds.
+- Failed checks emit `logger.exception(...)` with stack trace.
+
+### D4.3 Safe Limits for Heavy Outputs
+
+Updated serialization strategy in `dash_app/runner/orchestrator.py`:
+
+- Added constants: `PREVIEW_ROWS_TOP10 = 10`, `PREVIEW_ROWS_DEFAULT = 20`.
+- `_df_to_records(...)` now clips previews deterministically before conversion.
+- Forward RI top preview explicitly capped to 10 rows at serialization layer.
+- Existing check logic and business outcomes remain unchanged; only display payload size is bounded.
+
+Updated `dash_app/ui/components.py` banner:
+
+- Run-level warnings/errors from payload are rendered in banner for support/debug visibility.
+
+## Human Validation Gate (Required Before Stage 5)
+
+Reviewer decision required:
+
+- Gate G4.1 (Structured error handling): `Pending Approval`
+- Gate G4.2 (Run logging and timings): `Pending Approval`
+- Gate G4.3 (Safe heavy-output limits): `Pending Approval`
+
+Do not start Stage 5 tasks until all Stage 4 gates are marked `Approved`.
 
 **Stage 0: Kickoff and Guardrails**
 1. Lock implementation baseline to current checker behavior only (no rule changes, no threshold changes, no extra checks).

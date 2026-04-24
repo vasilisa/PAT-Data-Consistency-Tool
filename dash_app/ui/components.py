@@ -385,12 +385,32 @@ def render_section5(section: dict) -> html.Div:
 # BANNER
 # ─────────────────────────────────────────────────────────────────────────────
 
-def render_banner(status: str, summary: str, metadata: dict) -> html.Div:
+def render_banner(
+    status: str,
+    summary: str,
+    metadata: dict,
+    warnings: list[str] | None = None,
+    errors: list[str] | None = None,
+) -> html.Div:
     """Top-level status banner matching the notebook display_banner() output."""
     color = _STATUS_COLOR.get(status, "#000")
     bg    = _STATUS_BG.get(status, "#fff")
     n     = metadata.get("dataset_count", 0)
     ms    = metadata.get("runtime_ms", 0)
+    notes = []
+    if summary:
+        notes.append(html.Div(summary, style={"marginTop": "8px", "color": "#424242"}))
+    if warnings:
+        notes.append(html.Div(
+            [html.B("Warnings:"), html.Ul([html.Li(w) for w in warnings[:5]])],
+            style={"marginTop": "8px", "color": "#e65100"},
+        ))
+    if errors:
+        notes.append(html.Div(
+            [html.B("Errors:"), html.Ul([html.Li(e) for e in errors[:5]])],
+            style={"marginTop": "8px", "color": "#b71c1c"},
+        ))
+
     return html.Div(
         style={
             "background": bg,
@@ -408,6 +428,7 @@ def render_banner(status: str, summary: str, metadata: dict) -> html.Div:
                 f"  {n} table(s) loaded  ·  {ms} ms",
                 style={"color": "#616161", "marginLeft": "18px", "fontSize": "0.9em"},
             ),
+            *notes,
         ],
     )
 
@@ -436,9 +457,11 @@ def render_all_sections(payload: dict | None) -> tuple:
     status   = payload.get("status", "SKIP")
     summary  = payload.get("summary", "")
     metadata = payload.get("metadata", {})
+    warnings = payload.get("warnings", [])
+    errors   = payload.get("errors", [])
     sections = {s["section_id"]: s for s in payload.get("sections", [])}
 
-    banner = render_banner(status, summary, metadata)
+    banner = render_banner(status, summary, metadata, warnings=warnings, errors=errors)
 
     s1 = render_section1(sections.get("check1",    {"checks": [], "status": "SKIP"}))
     s2 = render_section2(sections.get("checks2_5", {"checks": [], "status": "SKIP"}))

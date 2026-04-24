@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from dash import Dash, Input, Output, no_update
+from datetime import datetime, timezone
+import logging
 
-from dash_app.engine.contracts import empty_run_result, to_payload
+from dash import Dash, Input, Output
+
+from dash_app.engine.contracts import RunMetadata, RunResult, Status, empty_run_result, to_payload
 from dash_app.runner.orchestrator import run_all_checks
 from dash_app.ui.components import render_all_sections
 from dash_app.ui.layout import build_layout
+
+logger = logging.getLogger(__name__)
 
 app = Dash(__name__)
 app.layout = build_layout()
@@ -23,9 +28,29 @@ def on_run_clicked(n_clicks: int):
         payload = to_payload(empty_run_result())
         return payload, "No run executed yet."
 
-    result = run_all_checks()
+    try:
+        result = run_all_checks()
+    except Exception as exc:  # pragma: no cover - callback-level guard
+        logger.exception("Unhandled callback error in on_run_clicked")
+        now = datetime.now(timezone.utc).isoformat()
+        result = RunResult(
+            status=Status.FAIL,
+            summary="Fatal callback error while running checks.",
+            metadata=RunMetadata(
+                started_at_utc=now,
+                completed_at_utc=now,
+                runtime_ms=0,
+                dataset_count=0,
+                dataset_names=[],
+            ),
+            sections=[],
+            errors=[str(exc)],
+        )
+
     payload = to_payload(result)
-    banner = f"Overall Status: {result.status.value} | {result.summary}"
+    warning_note = f" | warnings: {len(result.warnings)}" if result.warnings else ""
+    error_note = f" | errors: {len(result.errors)}" if result.errors else ""
+    banner = f"Overall Status: {result.status.value} | {result.summary}{warning_note}{error_note}"
     return payload, banner
 
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
+import time
 from typing import Any
 
 import pandas as pd
@@ -16,6 +18,12 @@ from dash_app.engine.checks import (
 )
 from dash_app.engine.contracts import CheckResult, RunMetadata, RunResult, SectionResult, Status
 from dash_app.engine.loader import classify_tables, load_tbl_datasets
+
+logger = logging.getLogger(__name__)
+
+# Serialization limits for large preview payloads sent to dcc.Store.
+PREVIEW_ROWS_TOP10 = 10
+PREVIEW_ROWS_DEFAULT = 20
 
 
 def _derive_overall_status(statuses: list[Status]) -> Status:
@@ -102,11 +110,41 @@ def build_static_stage1_result() -> RunResult:
 # STAGE 2 — REAL ORCHESTRATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _df_to_records(df: pd.DataFrame | None, max_rows: int = 20) -> list[dict]:
+def _df_to_records(df: pd.DataFrame | None, max_rows: int = PREVIEW_ROWS_DEFAULT) -> list[dict]:
     """Serialize a DataFrame (or None) to a JSON-safe list of row dicts."""
     if df is None or (hasattr(df, "empty") and df.empty):
         return []
-    return df.head(max_rows).astype(object).where(df.head(max_rows).notna(), None).to_dict("records")
+    clipped = df.head(max_rows)
+    return clipped.astype(object).where(clipped.notna(), None).to_dict("records")
+
+
+def _timed_check(check_name: str, check_fn, *args):
+    """Run one check function with duration logging and exception capture."""
+    started = time.perf_counter()
+    try:
+        logger.info("Check start: %s", check_name)
+        result = check_fn(*args)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        logger.info("Check end: %s (%d ms)", check_name, elapsed_ms)
+        return result, elapsed_ms, None
+    except Exception as exc:  # pragma: no cover - protective wrapper
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        logger.exception("Check failed: %s (%d ms)", check_name, elapsed_ms)
+        return None, elapsed_ms, str(exc)
+
+
+def _with_section_warning(section: SectionResult, warning: str) -> SectionResult:
+    """Attach a degradation warning to a section and bump SKIP to WARNING."""
+    next_status = section.status if section.status != Status.SKIP else Status.WARNING
+    return SectionResult(
+        section_id=section.section_id,
+        section_label=section.section_label,
+        status=next_status,
+        summary=section.summary,
+        checks=section.checks,
+        warnings=[*section.warnings, warning],
+        errors=section.errors,
+    )
 
 
 def _status(raw: str) -> Status:
@@ -182,7 +220,7 @@ def _build_section2(
             "forward_unmatched":  fwd.get("total_unmatched", 0),
             "forward_premium":    fwd.get("total_premium"),
             "forward_premium_pct": fwd.get("premium_pct"),
-            "forward_top10":      _df_to_records(fwd.get("top10")),
+            "forward_top10":      _df_to_records(fwd.get("top10"), max_rows=PREVIEW_ROWS_TOP10),
             "reverse_orphaned":   rev.get("total_orphaned", 0),
             "reverse_orphaned_rows": _df_to_records(rev.get("orphaned")),
             "forecast_orphaned_premium": rev.get("forecast_orphaned_premium"),
@@ -336,9 +374,29 @@ def run_all_checks() -> RunResult:
     Execution order matches data_consistency_checks.py run_and_display().
     """
     started = datetime.now(timezone.utc)
+    run_started = time.perf_counter()
+    logger.info("Run start: PAT data consistency checks")
 
-    datasets = load_tbl_datasets()
-    dd_df, mapping_df, ref_tables = classify_tables(datasets)
+    try:
+        datasets = load_tbl_datasets()
+        dd_df, mapping_df, ref_tables = classify_tables(datasets)
+    except Exception as exc:  # pragma: no cover - fatal setup guard
+        logger.exception("Fatal setup failure while loading/classifying datasets")
+        completed = datetime.now(timezone.utc)
+        runtime_ms = int((time.perf_counter() - run_started) * 1000)
+        return RunResult(
+            status=Status.FAIL,
+            summary="Fatal setup error before checks could run.",
+            metadata=RunMetadata(
+                started_at_utc=started.isoformat(),
+                completed_at_utc=completed.isoformat(),
+                runtime_ms=runtime_ms,
+                dataset_count=0,
+                dataset_names=[],
+            ),
+            sections=[],
+            errors=[f"Fatal setup error: {exc}"],
+        )
 
     if dd_df is None:
         completed = datetime.now(timezone.utc)
@@ -356,15 +414,86 @@ def run_all_checks() -> RunResult:
             errors=["tbl_DetailedData not found — cannot run checks."],
         )
 
-    reg_results    = check_key_registration(dd_df, mapping_df, ref_tables)
-    ri_results     = check_referential_integrity(dd_df, ref_tables)
-    uniq_results   = check_row_uniqueness(dd_df, ref_tables)
-    parent_results = check_parent_columns(dd_df, mapping_df, ref_tables)
-    map_uniq       = check_mapping_uniqueness(mapping_df)
-    value_results  = check_value_ranges(dd_df, ref_tables)
-    km_results     = check_key_modelling_unmapped(dd_df)
+    run_warnings: list[str] = []
 
-    sections = [
+    reg_results, _, reg_error = _timed_check(
+        "check_key_registration", check_key_registration, dd_df, mapping_df, ref_tables
+    )
+    if reg_error:
+        run_warnings.append(f"Check 1 degraded: {reg_error}")
+        reg_results = {
+            tbl: {"status": "SKIP", "missing": []}
+            for tbl in sorted(ref_tables)
+        }
+
+    ri_results, _, ri_error = _timed_check(
+        "check_referential_integrity", check_referential_integrity, dd_df, ref_tables
+    )
+    if ri_error:
+        run_warnings.append(f"Checks 2-3 degraded: {ri_error}")
+        ri_results = {
+            tbl: {
+                "status": "SKIP",
+                "reason": "Check failed",
+                "forward": {"total_unmatched": 0, "top10": pd.DataFrame()},
+                "reverse": {"total_orphaned": 0, "orphaned": pd.DataFrame()},
+            }
+            for tbl in sorted(ref_tables)
+        }
+
+    uniq_results, _, uniq_error = _timed_check(
+        "check_row_uniqueness", check_row_uniqueness, dd_df, ref_tables
+    )
+    if uniq_error:
+        run_warnings.append(f"Check 4 degraded: {uniq_error}")
+        uniq_results = {
+            tbl: {
+                "status": "SKIP",
+                "reason": "Check failed",
+                "duplicate_count": 0,
+                "duplicates": pd.DataFrame(),
+                "uniqueness_cols": [],
+            }
+            for tbl in sorted(ref_tables)
+        }
+
+    parent_results, _, parent_error = _timed_check(
+        "check_parent_columns", check_parent_columns, dd_df, mapping_df, ref_tables
+    )
+    if parent_error:
+        run_warnings.append(f"Check 5 degraded: {parent_error}")
+        parent_results = {
+            tbl: {
+                "status": "SKIP",
+                "reason": "Check failed",
+                "failing_cols": [],
+                "domain_fails": [],
+            }
+            for tbl in sorted(ref_tables)
+        }
+
+    map_uniq, _, map_error = _timed_check(
+        "check_mapping_uniqueness", check_mapping_uniqueness, mapping_df
+    )
+    if map_error:
+        run_warnings.append(f"Check 6 degraded: {map_error}")
+        map_uniq = {"status": "SKIP", "reason": "Check failed"}
+
+    value_results, _, value_error = _timed_check(
+        "check_value_ranges", check_value_ranges, dd_df, ref_tables
+    )
+    if value_error:
+        run_warnings.append(f"Check 7 degraded: {value_error}")
+        value_results = {}
+
+    km_results, _, km_error = _timed_check(
+        "check_key_modelling_unmapped", check_key_modelling_unmapped, dd_df
+    )
+    if km_error:
+        run_warnings.append(f"Check 8 degraded: {km_error}")
+        km_results = {}
+
+    sections: list[SectionResult] = [
         _build_section1(reg_results),
         _build_section2(ri_results, uniq_results, parent_results),
         _build_section3(map_uniq),
@@ -372,8 +501,31 @@ def run_all_checks() -> RunResult:
         _build_section5(km_results),
     ]
 
+    if reg_error:
+        sections[0] = _with_section_warning(sections[0], f"Renderer degraded due to Check 1 error: {reg_error}")
+    if ri_error or uniq_error or parent_error:
+        joined = "; ".join(msg for msg in [ri_error, uniq_error, parent_error] if msg)
+        sections[1] = _with_section_warning(sections[1], f"Renderer degraded due to Checks 2-5 error(s): {joined}")
+    if map_error:
+        sections[2] = _with_section_warning(sections[2], f"Renderer degraded due to Check 6 error: {map_error}")
+    if value_error:
+        sections[3] = _with_section_warning(sections[3], f"Renderer degraded due to Check 7 error: {value_error}")
+    if km_error:
+        sections[4] = _with_section_warning(sections[4], f"Renderer degraded due to Check 8 error: {km_error}")
+
     overall = _derive_overall_status([s.status for s in sections])
+    if run_warnings and overall in (Status.PASS, Status.SKIP):
+        overall = Status.WARNING
+
     completed = datetime.now(timezone.utc)
+    runtime_ms = int((time.perf_counter() - run_started) * 1000)
+    logger.info(
+        "Run end: status=%s dataset_count=%d runtime_ms=%d warnings=%d",
+        overall.value,
+        len(datasets),
+        runtime_ms,
+        len(run_warnings),
+    )
 
     n = len(datasets)
     return RunResult(
@@ -382,9 +534,10 @@ def run_all_checks() -> RunResult:
         metadata=RunMetadata(
             started_at_utc=started.isoformat(),
             completed_at_utc=completed.isoformat(),
-            runtime_ms=int((completed - started).total_seconds() * 1000),
+            runtime_ms=runtime_ms,
             dataset_count=n,
             dataset_names=list(datasets.keys()),
         ),
         sections=sections,
+        warnings=run_warnings,
     )
