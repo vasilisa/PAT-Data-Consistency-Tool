@@ -1,0 +1,5 @@
+Key_Trend,Region,Trend_Value
+TR_A,North,0.03
+TR_B,South,0.4
+TR_C,East,-0.1
+TR_ORPHAN,West,0.02

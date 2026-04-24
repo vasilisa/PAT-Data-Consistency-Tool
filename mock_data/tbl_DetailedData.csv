@@ -1,0 +1,5 @@
+AsAt_Month,Premium,Segment,Region,LOB,Key_RateChange,Key_Trend,Key_Pattern_Attr,Key_Pattern_Large,Key_Pattern_Prem,Key_Forecast
+202604,100000,S1,North,Motor,RC_A,TR_A,PA_A,PL_A,PP_A,F1
+202604,80000,S2,South,Motor,RC_B,TR_B,PA_B,PL_B,PP_B,F1
+202604,60000,S3,East,Property,RC_MISS,TR_A,PA_A,PL_A,PP_A,F1
+202613,50000,S4,West,Liability,RC_A,TR_MISS,PA_C,PL_C,PP_C,F2

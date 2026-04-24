@@ -1,0 +1,5 @@
+Key_RateChange,Region,RateChange
+RC_A,North,0.05
+RC_B,South,0.9
+RC_C,East,-0.8
+RC_ORPHAN,West,0.01
