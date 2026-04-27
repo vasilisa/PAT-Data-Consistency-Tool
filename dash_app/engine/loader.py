@@ -88,6 +88,42 @@ def _get_dd_group_cols(loaded_ref_tables: dict[str, pd.DataFrame]) -> list[str]:
     return cols
 
 
+def _build_agg_schema(group_cols: list[str]) -> list[dict[str, Any]]:
+    """Derive the agg output schema from tbl_DetailedData and current group keys."""
+    import dataiku  # lazy import — only available in Dataiku runtime
+
+    source_schema = dataiku.Dataset("tbl_DetailedData").read_schema()
+    source_cols = {column["name"]: dict(column) for column in source_schema}
+    agg_schema = []
+
+    for column_name in group_cols:
+        source_col = source_cols.get(column_name)
+        if source_col is None:
+            raise RuntimeError(
+                f"Grouping column '{column_name}' was not found in tbl_DetailedData schema"
+            )
+        agg_schema.append(source_col)
+
+    premium_col = dict(source_cols.get("Premium", {"name": "Premium", "type": "double"}))
+    premium_col["name"] = "Premium"
+    premium_col["type"] = premium_col.get("type") or "double"
+    agg_schema.append(premium_col)
+    return agg_schema
+
+
+def _sync_agg_output_schema(group_cols: list[str]) -> None:
+    """Write the expected agg dataset schema before building the grouping recipe."""
+    import dataiku  # lazy import — only available in Dataiku runtime
+
+    agg_schema = _build_agg_schema(group_cols)
+    dataiku.Dataset(AGG_DATASET_NAME).write_schema(agg_schema)
+    logger.info(
+        "DetailedData_Agg schema synced (columns=%d): %s",
+        len(agg_schema),
+        [column["name"] for column in agg_schema],
+    )
+
+
 def _get_agg_output_spec(project: Any, dataiku_module: Any) -> tuple[str, dict[str, Any]]:
     """Return output type/params for the aggregated DetailedData dataset."""
     dd_raw = project.get_dataset("tbl_DetailedData").get_settings().get_raw()
@@ -338,6 +374,7 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
         logger.info("DetailedData_Agg healthy pair found; updating settings and rebuilding")
 
     _configure_agg_recipe(recipe, group_cols)
+    _sync_agg_output_schema(group_cols)
     _build_agg_recipe(project)
     logger.info("DetailedData_Agg ensure complete")
     return True
