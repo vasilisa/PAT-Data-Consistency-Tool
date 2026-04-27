@@ -161,14 +161,46 @@ def _drop_agg_snowflake_table(project: Any, dataiku_module: Any) -> None:
         logger.exception("DetailedData_Agg Snowflake cleanup failed")
 
 
-def _create_agg_recipe(project: Any, output_type: str) -> Any:
-    """Create a new grouping recipe with a new agg output dataset."""
+def _create_agg_recipe(project: Any, output_type: str, output_params: dict[str, Any]) -> Any:
+    """
+    Create a new grouping recipe for the agg dataset.
+
+    Primary path uses with_new_output(). If DSS rejects that creation shape
+    (observed AssertionError in some environments), fallback to explicit
+    dataset creation + with_output().
+    """
     creator = project.new_recipe("grouping")
     creator.set_name(AGG_RECIPE_NAME)
     creator.with_input("tbl_DetailedData")
-    creator.with_new_output(AGG_DATASET_NAME, output_type)
+
+    try:
+        creator.with_new_output(AGG_DATASET_NAME, output_type)
+        recipe = creator.create()
+        logger.info(
+            "Created recipe %s with new output %s (%s)",
+            AGG_RECIPE_NAME,
+            AGG_DATASET_NAME,
+            output_type,
+        )
+        return recipe
+    except Exception:
+        logger.exception(
+            "with_new_output() recipe creation failed for %s; falling back to explicit dataset creation",
+            AGG_DATASET_NAME,
+        )
+
+    # Fallback: create output dataset explicitly, then bind recipe output.
+    project.create_dataset(AGG_DATASET_NAME, output_type, output_params)
+    creator = project.new_recipe("grouping")
+    creator.set_name(AGG_RECIPE_NAME)
+    creator.with_input("tbl_DetailedData")
+    creator.with_output(AGG_DATASET_NAME)
     recipe = creator.create()
-    logger.info("Created recipe %s with new output %s (%s)", AGG_RECIPE_NAME, AGG_DATASET_NAME, output_type)
+    logger.warning(
+        "Created recipe %s via fallback path (pre-created output dataset %s)",
+        AGG_RECIPE_NAME,
+        AGG_DATASET_NAME,
+    )
     return recipe
 
 
@@ -208,6 +240,11 @@ def _build_agg_recipe(project: Any) -> None:
 
     logger.info("DetailedData_Agg build finished with state=%s", state)
     if state != "DONE":
+        try:
+            status_payload = job.get_status()
+            logger.error("DetailedData_Agg build failure payload: %s", status_payload)
+        except Exception:
+            logger.exception("Failed to fetch DetailedData_Agg build status payload")
         raise RuntimeError(
             f"Build job ended with state '{state}'. "
             f"Open {AGG_RECIPE_NAME} in the Dataiku flow, "
@@ -269,7 +306,7 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
     logger.info("DetailedData_Agg branch evaluation: healthy_pair=%s", healthy_pair)
 
     if not healthy_pair:
-        output_type, _ = _get_agg_output_spec(project, dataiku)
+        output_type, output_params = _get_agg_output_spec(project, dataiku)
 
         if agg_exists and (not recipe_exists or not recipe_points_to_agg):
             logger.warning("DetailedData_Agg branch selected: ghost_dataset_recreate")
@@ -294,7 +331,7 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
         _drop_agg_snowflake_table(project, dataiku)
 
         print(f"  Creating {AGG_RECIPE_NAME}…", end=" ", flush=True)
-        recipe = _create_agg_recipe(project, output_type)
+        recipe = _create_agg_recipe(project, output_type, output_params)
         print("done.", flush=True)
     else:
         logger.info("DetailedData_Agg branch selected: healthy_pair_rebuild")
