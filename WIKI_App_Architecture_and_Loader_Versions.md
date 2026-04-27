@@ -139,6 +139,8 @@ Constants:
 
 ### New helper functions
 
+- `_build_agg_schema(...)`
+- `_sync_agg_output_schema(...)`
 - `_get_agg_output_spec(...)`
 - `_get_recipe_output_refs(...)`
 - `_delete_agg_dataset(...)`
@@ -147,6 +149,48 @@ Constants:
 - `_create_agg_recipe(...)`
 - `_configure_agg_recipe(...)`
 - `_build_agg_recipe(...)`
+
+
+## Latest Development (2026-04-27)
+
+### Problem observed in DSS/Snowflake
+
+- Grouping recipe run failed during target table initialization.
+- DSS generated:
+  - `CREATE OR REPLACE TABLE ... ( ) COPY GRANTS`
+- Snowflake error:
+  - `syntax error ... unexpected ')'`
+
+Root cause:
+
+- `tbl_DetailedData_Agg` could exist with an empty output schema.
+- The SQL engine then attempted to recreate the table with zero columns.
+
+
+### Implemented fix in loader.py
+
+Before every agg build, loader now explicitly writes the output schema:
+
+1. `_build_agg_schema(group_cols)`
+   - Reads `tbl_DetailedData` schema.
+   - Keeps the active grouping key columns.
+   - Appends `Premium` as the aggregation output column.
+2. `_sync_agg_output_schema(group_cols)`
+   - Writes that schema to `tbl_DetailedData_Agg` via Dataiku dataset API.
+3. `_ensure_dd_aggregated(...)`
+   - Order is now: configure recipe -> sync schema -> build recipe.
+
+This prevents empty target-table DDL generation.
+
+
+### Test coverage added
+
+- New test file: `tests/test_loader_schema.py`
+- Covered behaviors:
+  - `_build_agg_schema` builds expected output order/types.
+  - `_build_agg_schema` raises when a requested grouping column is not in source schema.
+  - `_sync_agg_output_schema` writes schema to `tbl_DetailedData_Agg`.
+  - `_ensure_dd_aggregated` invokes schema sync before build.
 
 
 ## Current Loader Decision Tree
