@@ -11,8 +11,11 @@ environments (e.g. local development).
 from __future__ import annotations
 
 from typing import Any
+import logging
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONSTANTS
@@ -106,9 +109,17 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
     existing      = {d["name"] for d in project.list_datasets()}
     agg_exists    = "tbl_DetailedData_Agg" in existing
     group_cols    = _get_dd_group_cols(loaded_ref_tables)
+    logger.info(
+        "DetailedData_Agg ensure start: agg_exists=%s, ref_tables_loaded=%d, group_cols=%d",
+        agg_exists,
+        len(loaded_ref_tables),
+        len(group_cols),
+    )
+    logger.debug("DetailedData_Agg group columns: %s", group_cols)
 
     # ── Create output dataset and recipe if needed ────────────────────────────
     if not agg_exists:
+        logger.info("DetailedData_Agg dataset missing; creating dataset + grouping recipe")
         print("  tbl_DetailedData_Agg not found — creating Group recipe…",
               end=" ", flush=True)
 
@@ -119,15 +130,18 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
         for drop_key in ("partitioning", "skipRows", "maxRows", "filterQuery"):
             output_params.pop(drop_key, None)
         project.create_dataset("tbl_DetailedData_Agg", dd_raw["type"], output_params)
+        logger.info("DetailedData_Agg dataset created")
 
     existing_recipes = {r["name"] for r in project.list_recipes()}
     if "compute_tbl_DetailedData_Agg" not in existing_recipes:
+        logger.info("compute_tbl_DetailedData_Agg recipe missing; creating new grouping recipe")
         creator = project.new_recipe("grouping")
         creator.set_name("compute_tbl_DetailedData_Agg")
         creator.with_input("tbl_DetailedData")
-        creator.with_new_output("tbl_DetailedData_Agg","filesystem_managed")
+        creator.with_output("tbl_DetailedData_Agg")
         recipe = creator.create()
     else:
+        logger.info("compute_tbl_DetailedData_Agg recipe exists; reusing")
         recipe = project.get_recipe("compute_tbl_DetailedData_Agg")
 
     # ── Always update recipe settings (group cols may have changed) ───────────
@@ -146,6 +160,7 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
     payload["globalCount"] = False
     settings.set_json_payload(payload)
     settings.save()
+    logger.info("DetailedData_Agg recipe settings saved (keys=%d)", len(group_cols))
 
 
     # ── Build only if the dataset did not previously exist ────────────────────
@@ -163,9 +178,12 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
             dataiku.SQLExecutor2(connection=conn_name).query_to_df(
                 f"DROP TABLE IF EXISTS {full_ref}"
             )
+            logger.info("DetailedData_Agg pre-build cleanup executed: %s", full_ref)
         except Exception:
+            logger.exception("DetailedData_Agg pre-build cleanup failed; continuing to build")
             pass  # non-critical; the build will surface any real SQL error
 
+        logger.info("DetailedData_Agg build starting")
         print("building…", end=" ", flush=True)
         job_def = project.new_job("NON_RECURSIVE_FORCED_BUILD")
         job_def.with_output("tbl_DetailedData_Agg")
@@ -178,6 +196,7 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
             print(".", end="", flush=True)
             time.sleep(3)
 
+        logger.info("DetailedData_Agg build finished with state=%s", state)
         if state != "DONE":
             raise RuntimeError(
                 f"Build job ended with state '{state}'. "
@@ -193,8 +212,12 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
                 f"run it manually, then re-run this tool."
             )
 
+        logger.info("DetailedData_Agg build verified in dataset list")
         print(" done.", flush=True)
+    else:
+        logger.info("DetailedData_Agg already exists; skipped rebuild")
 
+    logger.info("DetailedData_Agg ensure complete")
     return True
 
 
@@ -224,6 +247,7 @@ def load_tbl_datasets() -> dict[str, pd.DataFrame]:
 
     project  = dataiku.api_client().get_project(dataiku.default_project_key())
     existing = {d["name"] for d in project.list_datasets()}
+    logger.info("Dataset load start: project has %d dataset(s)", len(existing))
 
     # ── Step 1: load all reference tables first (they are small) ─────────────
     loaded, skipped = {}, []
@@ -231,29 +255,42 @@ def load_tbl_datasets() -> dict[str, pd.DataFrame]:
     for name in ref_names:
         if name not in existing:
             skipped.append(name)
+            logger.info("Dataset missing (skipped): %s", name)
             continue
         try:
             print(f"  Loading {name}…", end=" ", flush=True)
             loaded[name] = dataiku.Dataset(name).get_dataframe()
             print("done.", flush=True)
+            logger.info("Loaded dataset: %s (rows=%d, cols=%d)", name, len(loaded[name]), len(loaded[name].columns))
         except Exception as e:
             print(f"failed: {e}", flush=True)
+            logger.exception("Failed loading dataset: %s", name)
 
     # ── Step 2: ensure the pre-aggregated DetailedData exists, then load it ──
     if "tbl_DetailedData" not in existing:
         skipped.append("tbl_DetailedData")
+        logger.warning("tbl_DetailedData missing; DetailedData_Agg path skipped")
     else:
+        logger.info("Ensuring DetailedData_Agg before loading DetailedData")
         _ensure_dd_aggregated(project, loaded)
 
         print(f"  Loading tbl_DetailedData_Agg…", end=" ", flush=True)
         try:
             loaded["tbl_DetailedData"] = dataiku.Dataset("tbl_DetailedData_Agg").get_dataframe()
             print("done.", flush=True)
+            logger.info(
+                "Loaded tbl_DetailedData from tbl_DetailedData_Agg (rows=%d, cols=%d)",
+                len(loaded["tbl_DetailedData"]),
+                len(loaded["tbl_DetailedData"].columns),
+            )
         except Exception as e:
             print(f"failed: {e}", flush=True)
+            logger.exception("Failed loading tbl_DetailedData_Agg")
 
     if skipped:
         print(f"  Not in project (skipped): {', '.join(skipped)}", flush=True)
+        logger.info("Datasets skipped: %s", skipped)
+    logger.info("Dataset load complete: loaded=%d skipped=%d", len(loaded), len(skipped))
     return loaded
 
 
