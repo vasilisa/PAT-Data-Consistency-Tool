@@ -128,7 +128,7 @@ def _get_agg_output_spec(project: Any, dataiku_module: Any) -> tuple[str, dict[s
     """Return output type/params for the aggregated DetailedData dataset."""
     dd_raw = project.get_dataset("tbl_DetailedData").get_settings().get_raw()
     project_key = dataiku_module.default_project_key()
-    output_type = str(dd_raw["type"]).lower()
+    output_type = str(dd_raw["type"])
     output_params = dict(dd_raw["params"])
     output_params["table"] = f"{project_key}_TBL_DETAILEDDATA_AGG"
     for drop_key in ("partitioning", "skipRows", "maxRows", "filterQuery"):
