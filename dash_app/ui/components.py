@@ -129,9 +129,8 @@ def _pass_summary_line(table_names: list[str]) -> html.Div:
     )
 
 
-def _section_wrapper(section_id: str, header_text: str, status: str, body: list) -> html.Div:
+def _section_wrapper(header_text: str, status: str, body: list) -> html.Div:
     return html.Div(
-        id=f"section-{section_id}",
         children=[
             html.H3(
                 [header_text, _badge(status)],
@@ -171,7 +170,7 @@ def render_section1(section: dict) -> html.Div:
     if not checks:
         body.append(html.P("No checks executed.", style={"color": "#9e9e9e"}))
 
-    return _section_wrapper("check1", "Check 1 — Key Column Registration",
+    return _section_wrapper("Check 1 — Key Column Registration",
                             section.get("status", "SKIP"), body)
 
 
@@ -260,7 +259,6 @@ def render_section2(section: dict) -> html.Div:
         body.append(html.P("No checks executed.", style={"color": "#9e9e9e"}))
 
     return _section_wrapper(
-        "checks2_5",
         "Checks 2–5 — Referential Integrity, Row Uniqueness & Parent Columns",
         section.get("status", "SKIP"),
         body,
@@ -289,7 +287,7 @@ def render_section3(section: dict) -> html.Div:
     if not checks:
         body.append(html.P("tbl_Key_Mapping not loaded.", style={"color": "#9e9e9e"}))
 
-    return _section_wrapper("check6", "Check 6 — tbl_Key_Mapping",
+    return _section_wrapper("Check 6 — tbl_Key_Mapping",
                             section.get("status", "SKIP"), body)
 
 
@@ -300,8 +298,8 @@ def render_section4(section: dict) -> html.Div:
 
     if not checks:
         body.append(html.P("No value range checks performed.", style={"color": "#9e9e9e"}))
-        return _section_wrapper("check7", "Check 7 — Value Range Checks",
-                                section.get("status", "SKIP"), body)
+        return _section_wrapper("Check 7 — Value Range Checks",
+                    section.get("status", "SKIP"), body)
 
     # Summary table for all non-DevM checks
     non_devm = [c for c in checks if c.get("details", {}).get("column") != "DevM"]
@@ -336,7 +334,7 @@ def render_section4(section: dict) -> html.Div:
         ))
         body.append(_records_table(fails))
 
-    return _section_wrapper("check7", "Check 7 — Value Range Checks",
+    return _section_wrapper("Check 7 — Value Range Checks",
                             section.get("status", "SKIP"), body)
 
 
@@ -377,7 +375,7 @@ def render_section5(section: dict) -> html.Div:
         body.append(html.P("No Key_Modelling* columns found in tbl_DetailedData.",
                            style={"color": "#9e9e9e"}))
 
-    return _section_wrapper("check8", "Check 8 — Key_Modelling Coverage",
+    return _section_wrapper("Check 8 — Key_Modelling Coverage",
                             section.get("status", "SKIP"), body)
 
 

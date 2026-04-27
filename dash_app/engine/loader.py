@@ -147,6 +147,7 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
     settings.set_json_payload(payload)
     settings.save()
 
+
     # ── Build only if the dataset did not previously exist ────────────────────
     if not agg_exists:
         # Drop the Snowflake table if it was left over from a previous failed
