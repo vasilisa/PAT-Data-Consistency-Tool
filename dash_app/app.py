@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 
-from dash import Dash, Input, Output
+from dash import Dash, Input, Output, html
 
 from dash_app.engine.contracts import RunMetadata, RunResult, Status, empty_run_result, to_payload
 from dash_app.runner.orchestrator import run_all_checks
@@ -66,7 +66,21 @@ def on_run_clicked(n_clicks: int):
 def on_result_stored(payload: dict | None):
     """Stage 3 callback: renders all result sections from the dcc.Store payload."""
     banner, s1, s2, s3, s4, s5 = render_all_sections(payload)
-    return banner, s1, s2, s3, s4, s5
+
+    # Force React remount per execution to avoid stale/stacked section content
+    # when the app is run repeatedly in a long-lived backend session.
+    run_key = "no-run"
+    if payload:
+        run_key = payload.get("metadata", {}).get("started_at_utc", "no-run")
+
+    return (
+        banner,
+        html.Div(s1, key=f"{run_key}-check1"),
+        html.Div(s2, key=f"{run_key}-checks2_5"),
+        html.Div(s3, key=f"{run_key}-check6"),
+        html.Div(s4, key=f"{run_key}-check7"),
+        html.Div(s5, key=f"{run_key}-check8"),
+    )
 
 
 if __name__ == "__main__":
