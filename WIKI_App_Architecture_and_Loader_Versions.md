@@ -5,9 +5,9 @@
 This wiki explains:
 
 1. Each major part of the Dash app.
-2. The two loader versions:
-   - Original/previous loader (saved backup).
-   - Current loader with consistency-first recreate/rebuild logic.
+2. The loader versions:
+  - Original/previous loader (saved backup).
+  - Current loader (consistency-first lifecycle + runtime-safe schema sync).
 
 
 ## App Architecture
@@ -131,6 +131,7 @@ Core goal:
 - Treat agg dataset + recipe as a single consistency unit.
 - Recreate broken pairs.
 - Rebuild healthy pairs after settings updates.
+- Prevent DSS/Snowflake failures caused by empty agg output schema.
 
 Constants:
 
@@ -150,37 +151,47 @@ Constants:
 - `_configure_agg_recipe(...)`
 - `_build_agg_recipe(...)`
 
+Why this version was needed:
+
+- In some DSS runs, the grouping output dataset existed but had no effective output schema.
+- During build, DSS attempted to recreate the Snowflake target table with zero columns.
+- That generated invalid SQL and failed before aggregation query execution.
+
+### Runtime flow
+
+Within `_ensure_dd_aggregated(...)`, the logic now runs in this order:
+
+1. Inspect flow state (`agg_exists`, `recipe_exists`, `recipe_points_to_agg`).
+2. Recreate metadata pair when needed (ghost, broken, or missing pair branches).
+3. Apply grouping payload (`keys`, `values`, Premium rename override).
+4. Sync output dataset schema explicitly to `tbl_DetailedData_Agg`.
+5. Start forced non-recursive build and verify completion.
+
+### Key characteristics
+
+1. Added explicit schema construction:
+  - `_build_agg_schema(group_cols)` derives expected output columns from `tbl_DetailedData` schema.
+  - Keeps group key columns and appends `Premium` as aggregated output.
+2. Added explicit schema write:
+  - `_sync_agg_output_schema(group_cols)` writes schema to agg dataset before build.
+3. Creation fallback is retained:
+  - Primary create path: `with_new_output(...)`.
+  - Fallback path: pre-create dataset + `with_output(...)` if DSS rejects primary path.
+
+### Expected behavior improvements
+
+- No empty target-table DDL during agg build.
+- Better resilience across DSS environments where recipe output schema propagation is inconsistent.
+- Same functional output contract for downstream checks (`tbl_DetailedData_Agg` loaded as logical `tbl_DetailedData`).
+
 
 ## Latest Development (2026-04-27)
 
-### Problem observed in DSS/Snowflake
+This section tracks deltas only.
 
-- Grouping recipe run failed during target table initialization.
-- DSS generated:
-  - `CREATE OR REPLACE TABLE ... ( ) COPY GRANTS`
-- Snowflake error:
-  - `syntax error ... unexpected ')'`
-
-Root cause:
-
-- `tbl_DetailedData_Agg` could exist with an empty output schema.
-- The SQL engine then attempted to recreate the table with zero columns.
-
-
-### Implemented fix in loader.py
-
-Before every agg build, loader now explicitly writes the output schema:
-
-1. `_build_agg_schema(group_cols)`
-   - Reads `tbl_DetailedData` schema.
-   - Keeps the active grouping key columns.
-   - Appends `Premium` as the aggregation output column.
-2. `_sync_agg_output_schema(group_cols)`
-   - Writes that schema to `tbl_DetailedData_Agg` via Dataiku dataset API.
-3. `_ensure_dd_aggregated(...)`
-   - Order is now: configure recipe -> sync schema -> build recipe.
-
-This prevents empty target-table DDL generation.
+- Loader logic details are documented in `Loader Version 2 (Current)` above.
+- Main runtime issue resolved: empty target-table DDL in DSS/Snowflake.
+- Resolution applied: explicit output schema sync before agg build.
 
 
 ### Test coverage added
