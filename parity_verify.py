@@ -17,7 +17,7 @@ from dash_app.engine.checks import (
     check_row_uniqueness as new_check_row_uniqueness,
     check_value_ranges as new_check_value_ranges,
 )
-from dash_app.engine.loader import classify_tables
+from dash_app.engine.loader_v2 import classify_tables
 
 ROOT = Path(__file__).resolve().parent
 MOCK_DIR = ROOT / "mock_data"

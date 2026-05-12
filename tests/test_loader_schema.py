@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dash_app.engine import loader
+from dash_app.engine import loader_v2 as loader
 
 
 class _FakeDataset:

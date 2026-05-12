@@ -17,7 +17,7 @@ from dash_app.engine.checks import (
     check_value_ranges,
 )
 from dash_app.engine.contracts import CheckResult, RunMetadata, RunResult, SectionResult, Status
-from dash_app.engine.loader import classify_tables, load_tbl_datasets
+from dash_app.engine.loader_v2 import classify_tables, load_tbl_datasets
 
 logger = logging.getLogger(__name__)
 
