@@ -89,12 +89,12 @@ def _badge(status: str) -> html.Span:
     )
 
 
-def _records_table(records: list[dict], max_rows: int = 10) -> html.Div:
-    """Render a list-of-dicts as a compact html.Table, capped at max_rows."""
+def _records_table(records: list[dict], max_rows: int | None = None) -> html.Div:
+    """Render a list-of-dicts as a compact, scrollable html.Table."""
     if not records:
         return html.Em("No rows", style={"color": "#9e9e9e"})
 
-    shown = records[:max_rows]
+    shown = records if max_rows is None else records[:max_rows]
     cols = list(shown[0].keys())
 
     header = html.Thead(html.Tr([html.Th(c, style=_TH_STYLE) for c in cols]))
@@ -109,7 +109,7 @@ def _records_table(records: list[dict], max_rows: int = 10) -> html.Div:
     ]
 
     extra = []
-    if len(records) > max_rows:
+    if max_rows is not None and len(records) > max_rows:
         extra = [html.Tr(html.Td(
             f"... {len(records) - max_rows} more rows not shown",
             colSpan=len(cols),
@@ -126,6 +126,7 @@ def _records_table(records: list[dict], max_rows: int = 10) -> html.Div:
         style={
             "maxHeight": "300px",
             "overflowY": "auto",
+            "overflowX": "auto",
             "border": "1px solid #ccc",
             "padding": "8px",
         },

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dash import html
 
-from dash_app.ui.components import render_section5
+from dash_app.ui.components import _records_table, render_section5
 
 
 def _collect_text(node) -> list[str]:
@@ -120,3 +120,17 @@ def test_render_section5_omits_breakdown_block_when_no_warning_rows():
     text = " ".join(_collect_text(rendered))
     assert "unmapped premium by segment" not in text
     assert "identifier columns from tbl_Key_Mapping" not in text
+
+
+def test_records_table_scrollable_and_not_capped_by_default():
+    records = [{"col": i} for i in range(25)]
+
+    rendered = _records_table(records)
+
+    assert isinstance(rendered, html.Div)
+    assert rendered.style["maxHeight"] == "300px"
+    assert rendered.style["overflowY"] == "auto"
+    assert rendered.style["overflowX"] == "auto"
+
+    text = " ".join(_collect_text(rendered))
+    assert "more rows not shown" not in text
