@@ -1,0 +1,346 @@
+"""
+dash_app/engine/loader_v2.py
+=========================
+Dataset loading and table classification for the PAT Data Consistency Tool.
+
+This version modifies the logic for handling Ghost datasets:
+If the dataset exists but the recipe does not, the dataset is not deleted.
+Instead, a new recipe is created to output to the existing dataset, and the
+recipe is configured, the schema is synced, and the dataset is built.
+"""
+from __future__ import annotations
+
+from typing import Any
+import logging
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONSTANTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+WIKI_TABLES = [
+    "tbl_DetailedData",
+    "tbl_RateChange",
+    "tbl_Trend",
+    "tbl_Patterns_Attr",
+    "tbl_Patterns_Large",
+    "tbl_Patterns_Prem",
+    "tbl_Forecast",
+    "tbl_Key_Mapping",
+    "tbl_RateChange_Pol",
+    "tbl_IELR_Attr",
+    "tbl_IELR_Large",
+    "tbl_ULR_Prior_Attr",
+    "tbl_ULR_Prior_Large",
+    "tbl_Min_Large_Load",
+    "tbl_Weight_HistYears",
+]
+
+AGG_DATASET_NAME = "tbl_DetailedData_Agg"
+AGG_RECIPE_NAME = "compute_tbl_DetailedData_Agg"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERNAL HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_dd_group_cols(loaded_ref_tables: dict[str, pd.DataFrame]) -> list[str]:
+    """
+    Read tbl_DetailedData schema (no data load) and return the column names
+    to use as GROUP BY keys in the pre-aggregated dataset.
+    """
+    import dataiku  # lazy import — only available in Dataiku runtime
+
+    schema = dataiku.Dataset("tbl_DetailedData").read_schema()
+    NUMERIC_TYPES = {"int", "bigint", "smallint", "tinyint", "double", "float", "decimal"}
+
+    ref_cols = set()
+    for df in loaded_ref_tables.values():
+        ref_cols.update(df.columns)
+
+    cols = []
+    for col in schema:
+        name = col["name"]
+        ctype = col.get("type", "string").lower()
+        if name == "Premium":
+            continue
+        if name == "AsAt_Month":
+            cols.append(name)
+            continue
+        if name in ref_cols and ctype not in NUMERIC_TYPES:
+            cols.append(name)
+    return cols
+
+def _build_agg_schema(group_cols: list[str]) -> list[dict[str, Any]]:
+    """Derive the agg output schema from tbl_DetailedData and current group keys."""
+    import dataiku  # lazy import — only available in Dataiku runtime
+
+    source_schema = dataiku.Dataset("tbl_DetailedData").read_schema()
+    source_cols = {column["name"]: dict(column) for column in source_schema}
+    agg_schema = []
+
+    for column_name in group_cols:
+        source_col = source_cols.get(column_name)
+        if source_col is None:
+            raise RuntimeError(
+                f"Grouping column '{column_name}' was not found in tbl_DetailedData schema"
+            )
+        agg_schema.append(source_col)
+
+    premium_col = dict(source_cols.get("Premium", {"name": "Premium", "type": "double"}))
+    premium_col["name"] = "Premium"
+    premium_col["type"] = premium_col.get("type") or "double"
+    agg_schema.append(premium_col)
+    return agg_schema
+
+def _sync_agg_output_schema(group_cols: list[str]) -> None:
+    """Write the expected agg dataset schema before building the grouping recipe."""
+    import dataiku  # lazy import — only available in Dataiku runtime
+
+    agg_schema = _build_agg_schema(group_cols)
+    dataiku.Dataset(AGG_DATASET_NAME).write_schema(agg_schema)
+    logger.info(
+        "DetailedData_Agg schema synced (columns=%d): %s",
+        len(agg_schema),
+        [column["name"] for column in agg_schema],
+    )
+
+def _create_agg_recipe(project: Any, output_type: str, output_params: dict[str, Any]) -> Any:
+    """
+    Create a new grouping recipe for the agg dataset.
+    """
+    creator = project.new_recipe("grouping")
+    creator.set_name(AGG_RECIPE_NAME)
+    creator.with_input("tbl_DetailedData")
+
+    try:
+        creator.with_new_output(AGG_DATASET_NAME, output_type)
+        recipe = creator.create()
+        logger.info(
+            "Created recipe %s with new output %s (%s)",
+            AGG_RECIPE_NAME,
+            AGG_DATASET_NAME,
+            output_type,
+        )
+        return recipe
+    except Exception:
+        logger.exception(
+            "with_new_output() recipe creation failed for %s; falling back to explicit dataset creation",
+            AGG_DATASET_NAME,
+        )
+
+        project.create_dataset(AGG_DATASET_NAME, output_type, output_params)
+        creator = project.new_recipe("grouping")
+        creator.set_name(AGG_RECIPE_NAME)
+        creator.with_input("tbl_DetailedData")
+        creator.with_output(AGG_DATASET_NAME)
+        recipe = creator.create()
+        logger.warning(
+            "Created recipe %s via fallback path (pre-created output dataset %s)",
+            AGG_RECIPE_NAME,
+            AGG_DATASET_NAME,
+        )
+        return recipe
+
+def _configure_agg_recipe(recipe: Any, group_cols: list[str]) -> None:
+    """Apply current grouping and aggregation settings to the agg recipe."""
+    settings = recipe.get_settings()
+    payload = settings.get_json_payload()
+    payload["keys"] = [{"column": column} for column in group_cols]
+    payload["values"] = [{
+        "column": "Premium", "type": "double",
+        "sum": True, "avg": False, "min": False, "max": False,
+        "count": False, "countDistinct": False, "concat": False, "stddev": False,
+    }]
+    payload["outputColumnNameOverrides"] = {"Premium_sum": "Premium"}
+    payload["globalCount"] = False
+    settings.set_json_payload(payload)
+    settings.save()
+    logger.info("DetailedData_Agg recipe settings saved (keys=%d)", len(group_cols))
+
+def _build_agg_recipe(project: Any) -> None:
+    """Run the agg recipe and verify the output dataset exists afterward."""
+    import time
+
+    logger.info("DetailedData_Agg build starting")
+    print("building…", end=" ", flush=True)
+    job_def = project.new_job("NON_RECURSIVE_FORCED_BUILD")
+    job_def.with_output(AGG_DATASET_NAME)
+    job = job_def.start()
+
+    while True:
+        state = job.get_status().get("baseStatus", {}).get("state", "RUNNING")
+        if state in ("DONE", "FAILED", "ABORTED"):
+            break
+        print(".", end="", flush=True)
+        time.sleep(3)
+
+    logger.info("DetailedData_Agg build finished with state=%s", state)
+    if state != "DONE":
+        try:
+            status_payload = job.get_status()
+            logger.error("DetailedData_Agg build failure payload: %s", status_payload)
+        except Exception:
+            logger.exception("Failed to fetch DetailedData_Agg build status payload")
+        raise RuntimeError(
+            f"Build job ended with state '{state}'. "
+            f"Open {AGG_RECIPE_NAME} in the Dataiku flow, "
+            f"run it manually, then re-run this tool."
+        )
+
+    refreshed = {dataset["name"] for dataset in project.list_datasets()}
+    if AGG_DATASET_NAME not in refreshed:
+        raise RuntimeError(
+            f"Build completed but {AGG_DATASET_NAME} was not found. "
+            f"Open {AGG_RECIPE_NAME} in the Dataiku flow, "
+            f"run it manually, then re-run this tool."
+        )
+
+    logger.info("DetailedData_Agg build verified in dataset list")
+    print(" done.", flush=True)
+
+def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFrame]) -> bool:
+    """
+    Ensure the agg dataset / grouping recipe pair is consistent, then rebuild.
+
+    Modified logic for Ghost datasets:
+    If the dataset exists but the recipe does not, the dataset is not deleted.
+    Instead, a new recipe is created to output to the existing dataset.
+    """
+    import dataiku  # lazy import — only available in Dataiku runtime
+
+    existing_datasets = {dataset["name"] for dataset in project.list_datasets()}
+    existing_recipes = {recipe["name"] for recipe in project.list_recipes()}
+    agg_exists = AGG_DATASET_NAME in existing_datasets
+    recipe_exists = AGG_RECIPE_NAME in existing_recipes
+    group_cols = _get_dd_group_cols(loaded_ref_tables)
+    recipe_points_to_agg = False
+    recipe = None
+
+    if recipe_exists:
+        recipe = project.get_recipe(AGG_RECIPE_NAME)
+        recipe_outputs = set(recipe.get_settings().get_flat_output_refs())
+        recipe_points_to_agg = AGG_DATASET_NAME in recipe_outputs
+        logger.info(
+            "DetailedData_Agg recipe inspect: outputs=%s, points_to_agg=%s",
+            sorted(recipe_outputs),
+            recipe_points_to_agg,
+        )
+
+    logger.info(
+        "DetailedData_Agg ensure start: agg_exists=%s, recipe_exists=%s, recipe_points_to_agg=%s, ref_tables_loaded=%d, group_cols=%d",
+        agg_exists,
+        recipe_exists,
+        recipe_points_to_agg,
+        len(loaded_ref_tables),
+        len(group_cols),
+    )
+    logger.debug("DetailedData_Agg group columns: %s", group_cols)
+
+    if not recipe_exists:
+        logger.warning("DetailedData_Agg branch selected: ghost_dataset_recreate")
+        logger.warning(
+            "Found _Agg dataset but no group by recipe pointing to it, will create a new recipe to output to the existing dataset"
+        )
+        output_type, output_params = _get_agg_output_spec(project, dataiku)
+        recipe = _create_agg_recipe(project, output_type, output_params)
+    elif not agg_exists or not recipe_points_to_agg:
+        logger.warning("DetailedData_Agg branch selected: broken_or_missing_pair_recreate")
+        if recipe_exists:
+            _delete_agg_recipe(project)
+        if agg_exists:
+            _delete_agg_dataset(project)
+        _drop_agg_snowflake_table(project, dataiku)
+        output_type, output_params = _get_agg_output_spec(project, dataiku)
+        recipe = _create_agg_recipe(project, output_type, output_params)
+
+    _configure_agg_recipe(recipe, group_cols)
+    _sync_agg_output_schema(group_cols)
+    _build_agg_recipe(project)
+    logger.info("DetailedData_Agg ensure complete")
+    return True
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PUBLIC API
+# ─────────────────────────────────────────────────────────────────────────────
+
+def load_tbl_datasets() -> dict[str, pd.DataFrame]:
+    """
+    Load all in-scope tbl_* datasets present in the Dataiku project.
+
+    tbl_DetailedData is accessed via a pre-aggregated dataset
+    (tbl_DetailedData_Agg) produced by a Dataiku Group recipe.  That recipe
+    groups tbl_DetailedData by all non-numeric columns and sums Premium; the
+    build runs at the storage layer (SQL / Spark), so it is fast even for
+    very large tables.  Each run first ensures the dataset/recipe pairing is
+    healthy, then rebuilds the recipe so the loaded data matches current
+    reference-table-driven grouping settings.
+
+    Returns {table_name: DataFrame} for tables that exist and load
+    successfully.  The aggregated DetailedData is stored under the key
+    "tbl_DetailedData" so all downstream check functions work unchanged.
+    """
+    import dataiku  # lazy import — only available in Dataiku runtime
+
+    project  = dataiku.api_client().get_project(dataiku.default_project_key())
+    existing = {d["name"] for d in project.list_datasets()}
+    logger.info("Dataset load start: project has %d dataset(s)", len(existing))
+
+    loaded, skipped = {}, []
+    ref_names = [n for n in WIKI_TABLES if n != "tbl_DetailedData"]
+    for name in ref_names:
+        if name not in existing:
+            skipped.append(name)
+            logger.info("Dataset missing (skipped): %s", name)
+            continue
+        try:
+            print(f"  Loading {name}…", end=" ", flush=True)
+            loaded[name] = dataiku.Dataset(name).get_dataframe()
+            print("done.", flush=True)
+            logger.info("Loaded dataset: %s (rows=%d, cols=%d)", name, len(loaded[name]), len(loaded[name].columns))
+        except Exception as e:
+            print(f"failed: {e}", flush=True)
+            logger.exception("Failed loading dataset: %s", name)
+
+    if "tbl_DetailedData" not in existing:
+        skipped.append("tbl_DetailedData")
+        logger.warning("tbl_DetailedData missing; DetailedData_Agg path skipped")
+    else:
+        logger.info("Ensuring DetailedData_Agg before loading DetailedData")
+        _ensure_dd_aggregated(project, loaded)
+
+        print(f"  Loading tbl_DetailedData_Agg…", end=" ", flush=True)
+        try:
+            loaded["tbl_DetailedData"] = dataiku.Dataset("tbl_DetailedData_Agg").get_dataframe()
+            print("done.", flush=True)
+            logger.info(
+                "Loaded tbl_DetailedData from tbl_DetailedData_Agg (rows=%d, cols=%d)",
+                len(loaded["tbl_DetailedData"]),
+                len(loaded["tbl_DetailedData"].columns),
+            )
+        except Exception as e:
+            print(f"failed: {e}", flush=True)
+            logger.exception("Failed loading tbl_DetailedData_Agg")
+
+    if skipped:
+        print(f"  Not in project (skipped): {', '.join(skipped)}", flush=True)
+        logger.info("Datasets skipped: %s", skipped)
+    logger.info("Dataset load complete: loaded=%d skipped=%d", len(loaded), len(skipped))
+    return loaded
+
+def classify_tables(
+    datasets: dict[str, pd.DataFrame],
+) -> tuple[pd.DataFrame | None, pd.DataFrame | None, dict[str, pd.DataFrame]]:
+    """
+    Split loaded datasets into:
+      dd_df      — tbl_DetailedData
+      mapping_df — tbl_Key_Mapping
+      ref_tables — all other loaded tables  {name: DataFrame}
+    """
+    dd_df      = datasets.get("tbl_DetailedData")
+    mapping_df = datasets.get("tbl_Key_Mapping")
+    ref_tables = {k: v for k, v in datasets.items()
+                  if k not in ("tbl_DetailedData", "tbl_Key_Mapping")}
+    return dd_df, mapping_df, ref_tables
