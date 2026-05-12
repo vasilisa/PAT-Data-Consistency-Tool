@@ -371,6 +371,38 @@ def render_section5(section: dict) -> html.Div:
             "Unmapped = null or blank value — these rows will not join to any reference table.",
             style={"color": "#616161", "fontSize": "0.85em", "margin": "3px 0 3px 14px"},
         ))
+
+        # Breakdown by identifier columns for WARNING rows (parity with notebook output).
+        for c in checks:
+            d = c.get("details", {})
+            if c.get("status") != "WARNING":
+                continue
+            rows = d.get("breakdown", [])
+            if not rows:
+                continue
+
+            total = d.get("total_premium")
+            if total:
+                rows_with_pct = []
+                for row in rows:
+                    next_row = dict(row)
+                    prem = next_row.get("Premium")
+                    try:
+                        next_row["Premium_%"] = round(float(prem) / float(total) * 100, 1)
+                    except Exception:
+                        next_row["Premium_%"] = None
+                    rows_with_pct.append(next_row)
+                rows = rows_with_pct
+
+            n_shown = min(20, len(rows))
+            body.append(html.Div(
+                [
+                    html.B(f"{d.get('column', '')} — unmapped premium by segment"),
+                    f" (top {n_shown} of {len(rows)} combination(s), identifier columns from tbl_Key_Mapping)",
+                ],
+                style={**_NOTE_STYLE, "marginTop": "8px"},
+            ))
+            body.append(_records_table(rows, max_rows=20))
     else:
         body.append(html.P("No Key_Modelling* columns found in tbl_DetailedData.",
                            style={"color": "#9e9e9e"}))

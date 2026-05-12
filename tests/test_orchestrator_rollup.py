@@ -106,6 +106,30 @@ class TestBuildSection5:
         result = _build_section5({})
         assert result.status == Status.SKIP
 
+    def test_includes_breakdown_payload_fields(self):
+        km = {
+            "Key_Modelling": {
+                "status": "WARNING",
+                "unmapped_count": 2,
+                "unmapped_premium": 100.0,
+                "premium_pct": 25.0,
+                "total_premium": 400.0,
+                "id_cols": ["State", "LOB"],
+                "breakdown": pd.DataFrame([
+                    {"State": "NSW", "LOB": "A", "Premium": 60.0},
+                    {"State": "VIC", "LOB": "B", "Premium": 40.0},
+                ]),
+            }
+        }
+
+        result = _build_section5(km)
+        details = result.checks[0].details
+
+        assert details["total_premium"] == pytest.approx(400.0)
+        assert details["id_cols"] == ["State", "LOB"]
+        assert isinstance(details["breakdown"], list)
+        assert details["breakdown"][0]["State"] == "NSW"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # run_all_checks end-to-end with mocked loader

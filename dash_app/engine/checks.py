@@ -189,6 +189,11 @@ def check_row_uniqueness(
             # Key_Modelling is the dimension that varies across forecast scenarios
             # for the same underlying segment — it is intentionally repeated.
             uniq_cols = [c for c in ref_df.columns if c != "Key_Modelling"]
+        elif tbl == "tbl_Trend":
+            # All columns except Trend_Value define row identity — Trend_Value is
+            # the payload. get_join_key misses Trend-specific dimension columns
+            # (e.g. Trend_Period, Trend_Type) that do not appear in DetailedData.
+            uniq_cols = [c for c in ref_df.columns if c != "Trend_Value"]
         else:
             uniq_cols = get_join_key(ref_df, dd_df)
 
@@ -530,17 +535,38 @@ def check_value_ranges(
 # CHECK 8 — KEY_MODELLING COVERAGE
 # ─────────────────────────────────────────────────────────────────────────────
 
-def check_key_modelling_unmapped(dd_df: pd.DataFrame | None) -> dict:
+def check_key_modelling_unmapped(
+    dd_df: pd.DataFrame | None,
+    mapping_df: pd.DataFrame | None = None,
+) -> dict:
     """
     For each Key_Modelling* column in tbl_DetailedData, reports how much
     premium corresponds to rows where the value is null or blank — these rows
     are not assigned to any modelling segment and will be excluded from the
     PAT analysis.
+    When mapping_df (tbl_Key_Mapping) is provided, non-Key_* columns shared
+    with DetailedData are treated as identifier columns, and unmapped premium
+    is broken down by those columns.
+
     Severity: WARNING if any unmapped premium exists.
-    Returns {column_name: {status, unmapped_count, unmapped_premium, premium_pct}}
+    Returns {
+      column_name: {
+        status, unmapped_count, unmapped_premium, premium_pct,
+        total_premium, breakdown, id_cols
+      }
+    }
     """
     if dd_df is None or "Premium" not in dd_df.columns:
         return {}
+
+    # Identifier columns from tbl_Key_Mapping, used for unmapped breakdown.
+    if mapping_df is not None:
+        id_cols = [
+            c for c in mapping_df.columns
+            if not c.startswith("Key_") and c in dd_df.columns and c != "Premium"
+        ]
+    else:
+        id_cols = []
 
     total_premium = dd_df["Premium"].sum()
     results = {}
@@ -549,11 +575,26 @@ def check_key_modelling_unmapped(dd_df: pd.DataFrame | None) -> dict:
         unmapped_mask = dd_df[col].isna() | (dd_df[col].astype(str).str.strip() == "")
         unmapped_prem = float(dd_df.loc[unmapped_mask, "Premium"].sum())
         pct           = (unmapped_prem / total_premium * 100) if total_premium else 0.0
+
+        if id_cols and unmapped_mask.sum() > 0:
+            breakdown = (
+                dd_df.loc[unmapped_mask, id_cols + ["Premium"]]
+                .groupby(id_cols, dropna=False)["Premium"]
+                .sum()
+                .reset_index()
+                .sort_values("Premium", ascending=False)
+            )
+        else:
+            breakdown = None
+
         results[col]  = {
             "status":           "WARNING" if unmapped_prem > 0 else "PASS",
             "column":           col,
             "unmapped_count":   int(unmapped_mask.sum()),
             "unmapped_premium": unmapped_prem,
             "premium_pct":      round(pct, 1),
+            "total_premium":    float(total_premium),
+            "breakdown":        breakdown,
+            "id_cols":          id_cols,
         }
     return results

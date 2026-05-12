@@ -4,9 +4,22 @@
 
 The **PAT Data Consistency Tool** is a Dataiku-based validation utility that performs comprehensive data quality checks on PAT (Premium Actuarial Tool) input tables before a PAT build is executed. It verifies internal consistency across multiple reference tables, mapping tables, and detailed data, ensuring that joins are unambiguous and all data relationships are valid.
 
-**Version:** v20260423 (Initial version)  
+**Version:** v20260512 (Notebook/webapp parity updates)  
 **Platform:** Dataiku Python notebook in the PAT Data project  
 **Status:** On-demand execution (no parameters required)
+
+---
+
+## Recent Updates
+
+The Dash webapp and notebook implementation were aligned with the latest notebook behavior while preserving the webapp's robust execution flow.
+
+- Check 4 now treats `tbl_Trend` uniqueness as all columns except `Trend_Value`.
+- Check 8 now passes `tbl_Key_Mapping` context into the engine so unmapped Key_Modelling premium can be broken down by identifier columns.
+- The webapp UI now renders the Check 8 breakdown table and its `% of total` column, matching the notebook output.
+- New unit tests were added for the Check 4 `tbl_Trend` rule, the Check 8 mapping breakdown, and the Check 8 UI rendering path.
+
+The existing webapp safeguards remain in place, including timed check execution, section-level degradation handling, and resilient agg-dataset loading.
 
 ---
 

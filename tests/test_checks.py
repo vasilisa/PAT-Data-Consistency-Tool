@@ -171,6 +171,24 @@ class TestCheckRowUniqueness:
         result = check_row_uniqueness(dd_df, {"tbl_Patterns_Attr": ref_dup})
         assert result["tbl_Patterns_Attr"]["status"] == "FAIL"
 
+    def test_trend_uses_all_columns_except_trend_value(self, dd_df):
+        """tbl_Trend uniqueness must include trend-specific dimensions not in DD."""
+        ref_trend = pd.DataFrame({
+            "Key_Policy":   ["P1", "P1"],
+            "State":        ["NSW", "NSW"],
+            "Trend_Period": ["Annual", "Annual"],
+            "Trend_Type":   ["Severity", "Severity"],
+            "Trend_Value":  [0.01, 0.02],  # payload only; should not affect uniqueness
+        })
+
+        result = check_row_uniqueness(dd_df, {"tbl_Trend": ref_trend})
+
+        assert result["tbl_Trend"]["status"] == "FAIL"
+        assert result["tbl_Trend"]["duplicate_count"] == 1
+        assert "Trend_Period" in result["tbl_Trend"]["uniqueness_cols"]
+        assert "Trend_Type" in result["tbl_Trend"]["uniqueness_cols"]
+        assert "Trend_Value" not in result["tbl_Trend"]["uniqueness_cols"]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Check 5 — Parent Columns
@@ -346,3 +364,43 @@ class TestCheckKeyModellingUnmapped:
         })
         result = check_key_modelling_unmapped(dd)
         assert result["Key_Modelling"]["premium_pct"] == pytest.approx(50.0, abs=0.1)
+
+    def test_mapping_breakdown_by_identifier_columns(self):
+        dd = pd.DataFrame({
+            "Key_Modelling": ["M1", None, None, None],
+            "State":         ["NSW", "NSW", "NSW", "VIC"],
+            "LOB":           ["A", "A", "B", "A"],
+            "Premium":       [100.0, 50.0, 25.0, 25.0],
+        })
+        mapping = pd.DataFrame({
+            "Key_Modelling": ["M1", "M2"],
+            "State":         ["NSW", "VIC"],
+            "LOB":           ["A", "A"],
+            "OtherOnlyInMap": ["x", "y"],
+        })
+
+        result = check_key_modelling_unmapped(dd, mapping)
+        km = result["Key_Modelling"]
+
+        assert km["status"] == "WARNING"
+        assert km["total_premium"] == pytest.approx(200.0)
+        assert km["id_cols"] == ["State", "LOB"]
+        assert km["breakdown"] is not None
+
+        rows = km["breakdown"].to_dict("records")
+        assert rows[0]["State"] == "NSW"
+        assert rows[0]["LOB"] == "A"
+        assert rows[0]["Premium"] == pytest.approx(50.0)
+
+    def test_mapping_fields_present_without_mapping_df(self):
+        dd = pd.DataFrame({
+            "Key_Modelling": [None, "M1"],
+            "Premium":       [25.0, 75.0],
+        })
+
+        result = check_key_modelling_unmapped(dd)
+        km = result["Key_Modelling"]
+
+        assert km["id_cols"] == []
+        assert km["breakdown"] is None
+        assert km["total_premium"] == pytest.approx(100.0)

@@ -338,6 +338,9 @@ def _build_section5(km_results: dict) -> SectionResult:
                 "unmapped_count":   res.get("unmapped_count", 0),
                 "unmapped_premium": res.get("unmapped_premium", 0),
                 "premium_pct":      pct,
+                "total_premium":    res.get("total_premium"),
+                "id_cols":          res.get("id_cols", []),
+                "breakdown":        _df_to_records(res.get("breakdown"), max_rows=20),
             },
         ))
     sec_status = _section_status(checks) if checks else Status.SKIP
@@ -487,7 +490,7 @@ def run_all_checks() -> RunResult:
         value_results = {}
 
     km_results, _, km_error = _timed_check(
-        "check_key_modelling_unmapped", check_key_modelling_unmapped, dd_df
+        "check_key_modelling_unmapped", check_key_modelling_unmapped, dd_df, mapping_df
     )
     if km_error:
         run_warnings.append(f"Check 8 degraded: {km_error}")

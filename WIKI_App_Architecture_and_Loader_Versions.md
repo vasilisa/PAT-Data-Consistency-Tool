@@ -9,6 +9,10 @@ This wiki explains:
   - Original/previous loader (saved backup).
   - Current loader (consistency-first lifecycle + runtime-safe schema sync).
 
+Latest update:
+
+- 2026-05-12: notebook/webapp parity update for Check 4 `tbl_Trend` uniqueness, Check 8 Key_Modelling breakdown rendering, and supporting tests.
+
 
 ## App Architecture
 
@@ -58,6 +62,7 @@ Notes:
 
 - Section UI is rendered as replacement content per callback output.
 - Duplicate-ID inner wrappers were removed to prevent repeated UI stacking.
+- Check 8 now also renders the unmapped Key_Modelling breakdown table when the engine provides identifier columns and breakdown rows.
 
 
 ### 4) Contracts Layer
@@ -83,6 +88,11 @@ Notes:
 - Responsibility:
   - Implements all data consistency checks.
   - Returns plain dictionaries consumed by orchestrator.
+
+Recent parity note:
+
+- Check 4 now treats `tbl_Trend` uniqueness as all columns except `Trend_Value`.
+- Check 8 now accepts `tbl_Key_Mapping` context so unmapped Key_Modelling premium can be broken down by identifier columns.
 
 
 ### 7) Loader Layer
@@ -202,6 +212,20 @@ This section tracks deltas only.
   - `_build_agg_schema` raises when a requested grouping column is not in source schema.
   - `_sync_agg_output_schema` writes schema to `tbl_DetailedData_Agg`.
   - `_ensure_dd_aggregated` invokes schema sync before build.
+
+
+## Latest Development (2026-05-12)
+
+This section tracks the notebook/webapp parity update applied after the initial Dash migration.
+
+- Check 4 parity updated: `tbl_Trend` uniqueness now uses all columns except `Trend_Value`.
+- Check 8 parity updated: unmapped Key_Modelling rows are broken down by shared `tbl_Key_Mapping` identifier columns, and `% of total` is computed from the full premium base.
+- UI parity updated: the Check 8 section now renders the notebook-style breakdown table for warning rows.
+- Test coverage updated:
+  - Check 4 unit test for `tbl_Trend` uniqueness.
+  - Check 8 unit tests for mapping-driven breakdown behavior.
+  - UI unit test for Check 8 breakdown rendering and the no-breakdown path.
+- Webapp safeguards were preserved: timed execution, section-level degradation handling, and resilient loader rebuild logic remain unchanged.
 
 
 ## Current Loader Decision Tree
