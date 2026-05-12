@@ -11,7 +11,7 @@ This wiki explains:
 
 Latest update:
 
-- 2026-05-12: notebook/webapp parity update for Check 4 `tbl_Trend` uniqueness, Check 8 Key_Modelling breakdown rendering, and supporting tests.
+- 2026-05-12: notebook/webapp parity update for Check 4 `tbl_Trend` uniqueness, Check 8 Key_Modelling breakdown rendering, scrollable dataset output tables in the UI, and supporting tests.
 
 
 ## App Architecture
@@ -63,6 +63,7 @@ Notes:
 - Section UI is rendered as replacement content per callback output.
 - Duplicate-ID inner wrappers were removed to prevent repeated UI stacking.
 - Check 8 now also renders the unmapped Key_Modelling breakdown table when the engine provides identifier columns and breakdown rows.
+- Dataset output tables now render in a fixed-height scroll container (`overflowY` + `overflowX` set to `auto`) so larger check outputs can be browsed directly in the webapp.
 
 
 ### 4) Contracts Layer
@@ -97,7 +98,7 @@ Recent parity note:
 
 ### 7) Loader Layer
 
-- File: dash_app/engine/loader.py
+- File: dash_app/engine/loader_v2.py
 - Responsibility:
   - Reads Dataiku datasets.
   - Ensures `tbl_DetailedData_Agg` and its grouping recipe are valid.
@@ -134,7 +135,7 @@ Main downside:
 
 ## Loader Version 2 (Current)
 
-- File: dash_app/engine/loader.py
+- File: dash_app/engine/loader_v2.py
 
 Core goal:
 
@@ -220,11 +221,14 @@ This section tracks the notebook/webapp parity update applied after the initial 
 
 - Check 4 parity updated: `tbl_Trend` uniqueness now uses all columns except `Trend_Value`.
 - Check 8 parity updated: unmapped Key_Modelling rows are broken down by shared `tbl_Key_Mapping` identifier columns, and `% of total` is computed from the full premium base.
-- UI parity updated: the Check 8 section now renders the notebook-style breakdown table for warning rows.
+- UI parity updated:
+  - the Check 8 section now renders the notebook-style breakdown table for warning rows.
+  - dataset output tables are scrollable (vertical + horizontal) and are no longer capped to 10 rows by default.
 - Test coverage updated:
   - Check 4 unit test for `tbl_Trend` uniqueness.
   - Check 8 unit tests for mapping-driven breakdown behavior.
-  - UI unit test for Check 8 breakdown rendering and the no-breakdown path.
+  - UI unit tests for Check 8 breakdown rendering and the no-breakdown path.
+  - UI unit test for `_records_table` scroll container behavior and uncapped default row rendering.
 - Webapp safeguards were preserved: timed execution, section-level degradation handling, and resilient loader rebuild logic remain unchanged.
 
 
@@ -332,6 +336,7 @@ Key log markers:
 - dash_app/engine/contracts.py
 - dash_app/engine/helpers.py
 - dash_app/engine/checks.py
+- dash_app/engine/loader_v2.py
 - dash_app/engine/loader.py
 - dash_app/engine/loader_backup.py
 - dash_app/runner/orchestrator.py
@@ -340,4 +345,4 @@ Key log markers:
 ## Notes
 
 - `loader_backup.py` is a snapshot of the previous logic for reference and rollback.
-- The active loader is `loader.py`.
+- The active loader is `loader_v2.py` (wired in `dash_app/runner/orchestrator.py`).

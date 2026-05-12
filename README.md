@@ -17,6 +17,7 @@ The Dash webapp and notebook implementation were aligned with the latest noteboo
 - Check 4 now treats `tbl_Trend` uniqueness as all columns except `Trend_Value`.
 - Check 8 now passes `tbl_Key_Mapping` context into the engine so unmapped Key_Modelling premium can be broken down by identifier columns.
 - The webapp UI now renders the Check 8 breakdown table and its `% of total` column, matching the notebook output.
+- Dataset output tables now render in a fixed-height scroll container (vertical + horizontal scroll) and are no longer capped to 10 rows by default.
 - New unit tests were added for the Check 4 `tbl_Trend` rule, the Check 8 mapping breakdown, and the Check 8 UI rendering path.
 
 The existing webapp safeguards remain in place, including timed check execution, section-level degradation handling, and resilient agg-dataset loading.
@@ -187,10 +188,11 @@ Determines GROUP BY columns for `tbl_DetailedData` aggregation. Includes:
 
 #### `_ensure_dd_aggregated(project, loaded_ref_tables)`
 Manages pre-aggregated `tbl_DetailedData_Agg` dataset:
-- Creates a Dataiku Group recipe (automatic on first run)
-- Groups by non-numeric columns and sums Premium
+- Treats agg dataset + recipe as one consistency unit (healthy, ghost, broken, or missing pair)
+- Recreates broken metadata pairings when needed
+- Updates grouping settings and syncs output schema before build
+- Rebuilds after settings updates so data always matches current grouping
 - Runs aggregation at storage layer (SQL/Spark) for performance
-- Only rebuilds if dataset doesn't exist; updates recipe settings on every call
 
 #### `load_tbl_datasets()`
 Loads all in-scope `tbl_*` datasets:
@@ -387,9 +389,11 @@ dash_app/
     contracts.py           # Typed payload schema (Status, CheckResult, SectionResult, RunResult)
     helpers.py             # Pure column classification helpers (no Dataiku dependency)
     checks.py              # All 8 check functions (verbatim from data_consistency_checks.py)
-    loader.py              # Dataset loading and classification (Dataiku SDK calls here only)
+    loader_v2.py           # Active dataset loading/classification (consistency-first agg lifecycle)
+    loader.py              # Previous/alternate loader implementation kept for reference
+    loader_backup.py       # Backup snapshot of legacy loader behavior
   runner/
-    orchestrator.py        # Orchestrates checks → typed RunResult; run_all_checks() entry point
+    orchestrator.py        # Orchestrates checks → typed RunResult; imports loader_v2 entry points
   ui/
     layout.py              # Dash layout definition
     components.py          # Component renderers for each section and banner
@@ -397,9 +401,9 @@ dash_app/
 
 ### Known Limits
 
-- **Preview rows**: Each check section displays at most 10 rows for top-N tables and 20 rows for detail tables. Full data is not returned to the browser.
+- **Large-output rendering**: Tables are scrollable in the browser. Some checks still intentionally produce summarized/top-N rows (for example, forward RI top unmatched combinations) to keep payload size bounded.
 - **No auto-refresh**: The app does not poll for data changes. Click **Run Checks** to re-run.
-- **tbl_DetailedData_Agg**: The loader creates/updates a Dataiku Group recipe to pre-aggregate `tbl_DetailedData`. The recipe must be buildable within the project's compute environment.
+- **tbl_DetailedData_Agg**: The active `loader_v2` manages dataset+recipe consistency, syncs schema, and rebuilds aggregation in Dataiku. The recipe must be buildable within the project's compute environment.
 - **Optional tables**: If `tbl_Trend`, `tbl_Weight_HistYears`, or other optional tables are absent, their checks are silently skipped (status: SKIP).
 - **Check isolation**: If a single check throws an unexpected exception, that section is marked with a degradation warning and other sections are unaffected.
 
@@ -420,7 +424,7 @@ dash_app/
 .venv/bin/python -m pytest tests/ -v
 ```
 
-All 67 tests should pass. Tests cover all 8 check functions, the payload contracts, and the orchestrator rollup logic. No Dataiku SDK or live datasets are required.
+All tests should pass. Tests cover all 8 check functions, payload contracts, orchestrator rollup logic, loader schema behavior, and UI rendering. No Dataiku SDK or live datasets are required.
 
 ### Parity Verification
 
