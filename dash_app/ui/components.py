@@ -88,24 +88,14 @@ def _badge(status: str) -> html.Span:
         },
     )
 
-            children=[
-                html.Table(
-                    [header, html.Tbody(body_rows + extra)],
-                    style=_TABLE_STYLE,
-                )
-            ],
-            style={
-                "maxHeight": "300px",
-                "overflowY": "auto",
-                "border": "1px solid #ccc",
-                "padding": "8px",
-            },
+
+def _records_table(records: list[dict], max_rows: int = 10) -> html.Div:
     """Render a list-of-dicts as a compact html.Table, capped at max_rows."""
     if not records:
         return html.Em("No rows", style={"color": "#9e9e9e"})
 
     shown = records[:max_rows]
-    cols  = list(shown[0].keys())
+    cols = list(shown[0].keys())
 
     header = html.Thead(html.Tr([html.Th(c, style=_TH_STYLE) for c in cols]))
 
@@ -121,14 +111,24 @@ def _badge(status: str) -> html.Span:
     extra = []
     if len(records) > max_rows:
         extra = [html.Tr(html.Td(
-            f"… {len(records) - max_rows} more rows not shown",
+            f"... {len(records) - max_rows} more rows not shown",
             colSpan=len(cols),
             style={"color": "#9e9e9e", "fontStyle": "italic", "padding": "2px 12px"},
         ))]
 
-    return html.Table(
-        [header, html.Tbody(body_rows + extra)],
-        style=_TABLE_STYLE,
+    return html.Div(
+        children=[
+            html.Table(
+                [header, html.Tbody(body_rows + extra)],
+                style=_TABLE_STYLE,
+            )
+        ],
+        style={
+            "maxHeight": "300px",
+            "overflowY": "auto",
+            "border": "1px solid #ccc",
+            "padding": "8px",
+        },
     )
 
 
