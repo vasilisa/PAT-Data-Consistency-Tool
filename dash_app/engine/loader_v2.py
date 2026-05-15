@@ -107,6 +107,74 @@ def _sync_agg_output_schema(group_cols: list[str]) -> None:
         [column["name"] for column in agg_schema],
     )
 
+def _get_agg_output_spec(project: Any, dataiku_module: Any) -> tuple[str, dict[str, Any]]:
+    """Return output type/params for the aggregated DetailedData dataset."""
+    dd_raw = project.get_dataset("tbl_DetailedData").get_settings().get_raw()
+    project_key = dataiku_module.default_project_key()
+    output_type = str(dd_raw["type"])
+    output_params = dict(dd_raw["params"])
+    output_params["table"] = f"{project_key}_TBL_DETAILEDDATA_AGG"
+    for drop_key in ("partitioning", "skipRows", "maxRows", "filterQuery"):
+        output_params.pop(drop_key, None)
+    return output_type, output_params
+
+def _get_recipe_output_refs(recipe: Any) -> set[str]:
+    """Return flattened output dataset refs for a recipe."""
+    try:
+        return set(recipe.get_settings().get_flat_output_refs())
+    except Exception:
+        logger.exception("Failed to inspect recipe outputs for %s", AGG_RECIPE_NAME)
+        return set()
+
+def _delete_agg_dataset(project: Any) -> None:
+    """Delete the agg dataset from Dataiku metadata if it exists."""
+    try:
+        project.delete_dataset(AGG_DATASET_NAME)
+        logger.info("Deleted dataset: %s", AGG_DATASET_NAME)
+        return
+    except Exception:
+        logger.debug("project.delete_dataset unavailable or failed for %s", AGG_DATASET_NAME)
+
+    try:
+        project.get_dataset(AGG_DATASET_NAME).delete()
+        logger.info("Deleted dataset via dataset handle: %s", AGG_DATASET_NAME)
+    except Exception:
+        logger.exception("Failed to delete dataset: %s", AGG_DATASET_NAME)
+        raise
+
+def _delete_agg_recipe(project: Any) -> None:
+    """Delete the agg recipe from Dataiku metadata if it exists."""
+    try:
+        project.delete_recipe(AGG_RECIPE_NAME)
+        logger.info("Deleted recipe: %s", AGG_RECIPE_NAME)
+        return
+    except Exception:
+        logger.debug("project.delete_recipe unavailable or failed for %s", AGG_RECIPE_NAME)
+
+    try:
+        project.get_recipe(AGG_RECIPE_NAME).delete()
+        logger.info("Deleted recipe via recipe handle: %s", AGG_RECIPE_NAME)
+    except Exception:
+        logger.exception("Failed to delete recipe: %s", AGG_RECIPE_NAME)
+        raise
+
+def _drop_agg_snowflake_table(project: Any, dataiku_module: Any) -> None:
+    """Best-effort cleanup of the physical Snowflake table behind the agg dataset."""
+    _, output_params = _get_agg_output_spec(project, dataiku_module)
+
+    try:
+        catalog = output_params.get("catalog", "")
+        schema_nm = output_params.get("schema", "")
+        table_nm = output_params.get("table", AGG_DATASET_NAME)
+        conn_name = output_params["connection"]
+        full_ref = f"{catalog}.{schema_nm}.{table_nm}" if catalog else f"{schema_nm}.{table_nm}"
+        dataiku_module.SQLExecutor2(connection=conn_name).query_to_df(
+            f"DROP TABLE IF EXISTS {full_ref}"
+        )
+        logger.info("DetailedData_Agg Snowflake cleanup executed: %s", full_ref)
+    except Exception:
+        logger.exception("DetailedData_Agg Snowflake cleanup failed")
+
 def _create_agg_recipe(project: Any, output_type: str, output_params: dict[str, Any]) -> Any:
     """
     Create a new grouping recipe for the agg dataset.
@@ -221,7 +289,7 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
 
     if recipe_exists:
         recipe = project.get_recipe(AGG_RECIPE_NAME)
-        recipe_outputs = set(recipe.get_settings().get_flat_output_refs())
+        recipe_outputs = _get_recipe_output_refs(recipe)
         recipe_points_to_agg = AGG_DATASET_NAME in recipe_outputs
         logger.info(
             "DetailedData_Agg recipe inspect: outputs=%s, points_to_agg=%s",
