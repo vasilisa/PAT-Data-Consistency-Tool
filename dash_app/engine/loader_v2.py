@@ -212,6 +212,20 @@ def _create_agg_recipe(project: Any, output_type: str, output_params: dict[str, 
         )
         return recipe
 
+def _create_agg_recipe_with_existing_output(project: Any) -> Any:
+    """Create the grouping recipe and bind it to an existing agg dataset."""
+    creator = project.new_recipe("grouping")
+    creator.set_name(AGG_RECIPE_NAME)
+    creator.with_input("tbl_DetailedData")
+    creator.with_output(AGG_DATASET_NAME)
+    recipe = creator.create()
+    logger.info(
+        "Created recipe %s using existing output dataset %s",
+        AGG_RECIPE_NAME,
+        AGG_DATASET_NAME,
+    )
+    return recipe
+
 def _configure_agg_recipe(recipe: Any, group_cols: list[str]) -> None:
     """Apply current grouping and aggregation settings to the agg recipe."""
     settings = recipe.get_settings()
@@ -308,12 +322,16 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
     logger.debug("DetailedData_Agg group columns: %s", group_cols)
 
     if not recipe_exists:
-        logger.warning("DetailedData_Agg branch selected: ghost_dataset_recreate")
-        logger.warning(
-            "Found _Agg dataset but no group by recipe pointing to it, will create a new recipe to output to the existing dataset"
-        )
-        output_type, output_params = _get_agg_output_spec(project, dataiku)
-        recipe = _create_agg_recipe(project, output_type, output_params)
+        if agg_exists:
+            logger.warning("DetailedData_Agg branch selected: ghost_dataset_recreate")
+            logger.warning(
+                "Found _Agg dataset but no group by recipe; creating recipe bound to existing dataset"
+            )
+            recipe = _create_agg_recipe_with_existing_output(project)
+        else:
+            logger.warning("DetailedData_Agg branch selected: missing_pair_recreate")
+            output_type, output_params = _get_agg_output_spec(project, dataiku)
+            recipe = _create_agg_recipe(project, output_type, output_params)
     elif not agg_exists or not recipe_points_to_agg:
         logger.warning("DetailedData_Agg branch selected: broken_or_missing_pair_recreate")
         if recipe_exists:

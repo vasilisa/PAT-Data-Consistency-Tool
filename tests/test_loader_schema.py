@@ -116,3 +116,52 @@ class TestEnsureDdAggregatedSchemaHook:
 
         assert loader._ensure_dd_aggregated(project, {}) is True
         assert call_order == ["configure", "sync", "build"]
+
+    def test_ghost_dataset_branch_uses_existing_output(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "dataiku", SimpleNamespace())
+
+        class _GhostProject:
+            def list_datasets(self):
+                return [{"name": loader.AGG_DATASET_NAME}]
+
+            def list_recipes(self):
+                return []
+
+        call_order = []
+        recipe_obj = object()
+        project = _GhostProject()
+
+        monkeypatch.setattr(loader, "_get_dd_group_cols", lambda _loaded: ["AsAt_Month"])
+        monkeypatch.setattr(
+            loader,
+            "_create_agg_recipe_with_existing_output",
+            lambda _project: call_order.append("create_existing") or recipe_obj,
+        )
+        monkeypatch.setattr(
+            loader,
+            "_get_agg_output_spec",
+            lambda _project, _dataiku: (_ for _ in ()).throw(AssertionError("should not be called")),
+        )
+        monkeypatch.setattr(
+            loader,
+            "_create_agg_recipe",
+            lambda _project, _type, _params: (_ for _ in ()).throw(AssertionError("should not be called")),
+        )
+        monkeypatch.setattr(
+            loader,
+            "_configure_agg_recipe",
+            lambda _recipe, _cols: call_order.append("configure"),
+        )
+        monkeypatch.setattr(
+            loader,
+            "_sync_agg_output_schema",
+            lambda _cols: call_order.append("sync"),
+        )
+        monkeypatch.setattr(
+            loader,
+            "_build_agg_recipe",
+            lambda _project: call_order.append("build"),
+        )
+
+        assert loader._ensure_dd_aggregated(project, {}) is True
+        assert call_order == ["create_existing", "configure", "sync", "build"]
