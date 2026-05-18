@@ -202,3 +202,98 @@ class TestCreateAggRecipeFallback:
         assert loader.AGG_DATASET_NAME in msg
         assert loader.AGG_RECIPE_NAME in msg
         assert "GDP_Snowflake_EMEA_RAWActuarial_PROD" in msg
+
+    def test_retries_dataset_creation_on_default_connection(self):
+        class _FakeCreator:
+            def __init__(self, create_raises=False):
+                self._create_raises = create_raises
+
+            def set_name(self, _name):
+                return None
+
+            def with_input(self, _name):
+                return None
+
+            def with_new_output(self, _name, _typ):
+                return None
+
+            def with_output(self, _name):
+                return None
+
+            def create(self):
+                if self._create_raises:
+                    raise RuntimeError("Connection Snowflake not found")
+                return object()
+
+        class _FakeProject:
+            def __init__(self):
+                self.create_dataset_connections = []
+                self._new_recipe_calls = 0
+
+            def new_recipe(self, _kind):
+                self._new_recipe_calls += 1
+                return _FakeCreator(create_raises=self._new_recipe_calls == 1)
+
+            def create_dataset(self, _name, _typ, _params):
+                conn = _params["connection"]
+                self.create_dataset_connections.append(conn)
+                if conn != loader.DEFAULT_AGG_FALLBACK_CONNECTION:
+                    raise RuntimeError("permission denied")
+
+        output_params = {"connection": "GDP_Snowflake_EMEA_RAWActuarial_PROD"}
+        project = _FakeProject()
+
+        recipe = loader._create_agg_recipe(project, "Snowflake", output_params)
+
+        assert recipe is not None
+        assert project.create_dataset_connections == [
+            "GDP_Snowflake_EMEA_RAWActuarial_PROD",
+            loader.DEFAULT_AGG_FALLBACK_CONNECTION,
+        ]
+
+    def test_records_runtime_note_when_fallback_connection_is_used(self):
+        loader.consume_runtime_notes()
+
+        class _FakeCreator:
+            def __init__(self, create_raises=False):
+                self._create_raises = create_raises
+
+            def set_name(self, _name):
+                return None
+
+            def with_input(self, _name):
+                return None
+
+            def with_new_output(self, _name, _typ):
+                return None
+
+            def with_output(self, _name):
+                return None
+
+            def create(self):
+                if self._create_raises:
+                    raise RuntimeError("Connection Snowflake not found")
+                return object()
+
+        class _FakeProject:
+            def __init__(self):
+                self._new_recipe_calls = 0
+
+            def new_recipe(self, _kind):
+                self._new_recipe_calls += 1
+                return _FakeCreator(create_raises=self._new_recipe_calls == 1)
+
+            def create_dataset(self, _name, _typ, _params):
+                if _params["connection"] != loader.DEFAULT_AGG_FALLBACK_CONNECTION:
+                    raise RuntimeError("permission denied")
+
+        loader._create_agg_recipe(
+            _FakeProject(),
+            "Snowflake",
+            {"connection": "GDP_Snowflake_EMEA_RAWActuarial_PROD"},
+        )
+
+        notes = loader.consume_runtime_notes()
+        assert len(notes) == 1
+        assert "fallback connection" in notes[0]
+        assert loader.DEFAULT_AGG_FALLBACK_CONNECTION in notes[0]

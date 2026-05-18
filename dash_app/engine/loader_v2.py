@@ -40,7 +40,17 @@ WIKI_TABLES = [
 ]
 
 AGG_DATASET_NAME = "tbl_DetailedData_Agg"
-AGG_RECIPE_NAME = "compute_tbl_DetailedData_Agg"
+AGG_RECIPE_NAME  = "compute_tbl_DetailedData_Agg"
+DEFAULT_AGG_FALLBACK_CONNECTION = "GDP_Snowflake_DKUS_Storage_COG_ACTUARIAL"
+
+_RUNTIME_NOTES: list[str] = []
+
+
+def consume_runtime_notes() -> list[str]:
+    """Return and clear loader runtime notes for the current orchestration run."""
+    notes = list(_RUNTIME_NOTES)
+    _RUNTIME_NOTES.clear()
+    return notes
 
 # ─────────────────────────────────────────────────────────────────────────────
 # INTERNAL HELPERS
@@ -199,19 +209,59 @@ def _create_agg_recipe(project: Any, output_type: str, output_params: dict[str, 
             AGG_DATASET_NAME,
         )
 
+        connection = output_params.get("connection", "<unknown>")
+        create_dataset_errors = []
         try:
             project.create_dataset(AGG_DATASET_NAME, output_type, output_params)
         except Exception as create_dataset_exc:
-            connection = output_params.get("connection", "<unknown>")
-            message = (
-                f"Unable to auto-create {AGG_DATASET_NAME}. "
-                f"with_new_output failed ({with_new_output_exc}); "
-                f"explicit dataset creation failed on connection '{connection}' ({create_dataset_exc}). "
-                f"Create {AGG_DATASET_NAME} and {AGG_RECIPE_NAME} manually in Dataiku Flow, "
-                f"or grant dataset-create permission on that connection, then re-run this tool."
+            create_dataset_errors.append(
+                f"connection '{connection}' ({create_dataset_exc})"
             )
-            logger.error(message)
-            raise RuntimeError(message) from create_dataset_exc
+
+            if connection != DEFAULT_AGG_FALLBACK_CONNECTION:
+                fallback_params = dict(output_params)
+                fallback_params["connection"] = DEFAULT_AGG_FALLBACK_CONNECTION
+                logger.warning(
+                    "Dataset creation on %s failed; retrying on fallback connection %s",
+                    connection,
+                    DEFAULT_AGG_FALLBACK_CONNECTION,
+                )
+                try:
+                    project.create_dataset(AGG_DATASET_NAME, output_type, fallback_params)
+                    output_params = fallback_params
+                    connection = DEFAULT_AGG_FALLBACK_CONNECTION
+                    logger.info(
+                        "Created dataset %s on fallback connection %s",
+                        AGG_DATASET_NAME,
+                        DEFAULT_AGG_FALLBACK_CONNECTION,
+                    )
+                    _RUNTIME_NOTES.append(
+                        f"Loader used fallback connection {DEFAULT_AGG_FALLBACK_CONNECTION} "
+                        f"to create {AGG_DATASET_NAME} after creation failed on {create_dataset_errors[0]}."
+                    )
+                except Exception as fallback_exc:
+                    create_dataset_errors.append(
+                        f"fallback connection '{DEFAULT_AGG_FALLBACK_CONNECTION}' ({fallback_exc})"
+                    )
+                    message = (
+                        f"Unable to auto-create {AGG_DATASET_NAME}. "
+                        f"with_new_output failed ({with_new_output_exc}); "
+                        f"explicit dataset creation failed on {'; '.join(create_dataset_errors)}. "
+                        f"Create {AGG_DATASET_NAME} and {AGG_RECIPE_NAME} manually in Dataiku Flow, "
+                        f"or grant dataset-create permission on one of these connections, then re-run this tool."
+                    )
+                    logger.error(message)
+                    raise RuntimeError(message) from fallback_exc
+            else:
+                message = (
+                    f"Unable to auto-create {AGG_DATASET_NAME}. "
+                    f"with_new_output failed ({with_new_output_exc}); "
+                    f"explicit dataset creation failed on {'; '.join(create_dataset_errors)}. "
+                    f"Create {AGG_DATASET_NAME} and {AGG_RECIPE_NAME} manually in Dataiku Flow, "
+                    f"or grant dataset-create permission on that connection, then re-run this tool."
+                )
+                logger.error(message)
+                raise RuntimeError(message) from create_dataset_exc
 
         creator = project.new_recipe("grouping")
         creator.set_name(AGG_RECIPE_NAME)
@@ -382,6 +432,8 @@ def load_tbl_datasets() -> dict[str, pd.DataFrame]:
     "tbl_DetailedData" so all downstream check functions work unchanged.
     """
     import dataiku  # lazy import — only available in Dataiku runtime
+
+    _RUNTIME_NOTES.clear()
 
     project  = dataiku.api_client().get_project(dataiku.default_project_key())
     existing = {d["name"] for d in project.list_datasets()}

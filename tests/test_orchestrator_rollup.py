@@ -225,3 +225,18 @@ class TestRunAllChecks:
 
         assert result.status == Status.FAIL
         assert any("Fatal setup error" in e for e in result.errors)
+
+    def test_loader_runtime_notes_are_included_in_warnings(self, minimal_datasets):
+        with (
+            patch("dash_app.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
+            patch("dash_app.runner.orchestrator.consume_runtime_notes", return_value=["loader used fallback connection"]),
+            patch("dash_app.runner.orchestrator.classify_tables") as mock_classify,
+        ):
+            dd = minimal_datasets["tbl_DetailedData"]
+            mapping = minimal_datasets["tbl_Key_Mapping"]
+            ref_tables = {"tbl_RateChange": minimal_datasets["tbl_RateChange"]}
+            mock_classify.return_value = (dd, mapping, ref_tables)
+
+            result = run_all_checks()
+
+        assert "loader used fallback connection" in result.warnings

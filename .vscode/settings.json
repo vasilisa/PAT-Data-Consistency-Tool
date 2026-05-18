@@ -3,6 +3,7 @@
         "/^python3 \"mock_data/generate_mock_data\\.py\"$/": {
             "approve": true,
             "matchCommandLine": true
-        }
+        },
+        "pytest": true
     }
 }

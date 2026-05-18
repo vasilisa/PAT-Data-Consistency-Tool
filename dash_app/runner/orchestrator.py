@@ -17,7 +17,7 @@ from dash_app.engine.checks import (
     check_value_ranges,
 )
 from dash_app.engine.contracts import CheckResult, RunMetadata, RunResult, SectionResult, Status
-from dash_app.engine.loader_v2 import classify_tables, load_tbl_datasets
+from dash_app.engine.loader_v2 import classify_tables, consume_runtime_notes, load_tbl_datasets
 
 logger = logging.getLogger(__name__)
 
@@ -418,6 +418,7 @@ def run_all_checks() -> RunResult:
         )
 
     run_warnings: list[str] = []
+    run_warnings.extend(consume_runtime_notes())
 
     reg_results, _, reg_error = _timed_check(
         "check_key_registration", check_key_registration, dd_df, mapping_df, ref_tables
