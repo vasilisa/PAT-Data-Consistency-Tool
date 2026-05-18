@@ -193,13 +193,26 @@ def _create_agg_recipe(project: Any, output_type: str, output_params: dict[str, 
             output_type,
         )
         return recipe
-    except Exception:
+    except Exception as with_new_output_exc:
         logger.exception(
             "with_new_output() recipe creation failed for %s; falling back to explicit dataset creation",
             AGG_DATASET_NAME,
         )
 
-        project.create_dataset(AGG_DATASET_NAME, output_type, output_params)
+        try:
+            project.create_dataset(AGG_DATASET_NAME, output_type, output_params)
+        except Exception as create_dataset_exc:
+            connection = output_params.get("connection", "<unknown>")
+            message = (
+                f"Unable to auto-create {AGG_DATASET_NAME}. "
+                f"with_new_output failed ({with_new_output_exc}); "
+                f"explicit dataset creation failed on connection '{connection}' ({create_dataset_exc}). "
+                f"Create {AGG_DATASET_NAME} and {AGG_RECIPE_NAME} manually in Dataiku Flow, "
+                f"or grant dataset-create permission on that connection, then re-run this tool."
+            )
+            logger.error(message)
+            raise RuntimeError(message) from create_dataset_exc
+
         creator = project.new_recipe("grouping")
         creator.set_name(AGG_RECIPE_NAME)
         creator.with_input("tbl_DetailedData")

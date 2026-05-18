@@ -165,3 +165,40 @@ class TestEnsureDdAggregatedSchemaHook:
 
         assert loader._ensure_dd_aggregated(project, {}) is True
         assert call_order == ["create_existing", "configure", "sync", "build"]
+
+
+class TestCreateAggRecipeFallback:
+
+    def test_raises_clear_error_when_dataset_creation_forbidden(self):
+        class _FakeCreator:
+            def set_name(self, _name):
+                return None
+
+            def with_input(self, _name):
+                return None
+
+            def with_new_output(self, _name, _typ):
+                return None
+
+            def with_output(self, _name):
+                return None
+
+            def create(self):
+                raise RuntimeError("Connection Snowflake not found")
+
+        class _FakeProject:
+            def new_recipe(self, _kind):
+                return _FakeCreator()
+
+            def create_dataset(self, _name, _typ, _params):
+                raise RuntimeError("You may not create a dataset on connection GDP_Snowflake")
+
+        output_params = {"connection": "GDP_Snowflake_EMEA_RAWActuarial_PROD"}
+
+        with pytest.raises(RuntimeError, match="Unable to auto-create") as exc_info:
+            loader._create_agg_recipe(_FakeProject(), "Snowflake", output_params)
+
+        msg = str(exc_info.value)
+        assert loader.AGG_DATASET_NAME in msg
+        assert loader.AGG_RECIPE_NAME in msg
+        assert "GDP_Snowflake_EMEA_RAWActuarial_PROD" in msg
