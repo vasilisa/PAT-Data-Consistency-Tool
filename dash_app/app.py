@@ -5,10 +5,10 @@ import logging
 
 from dash import Dash, Input, Output, html
 
-from dash_app.engine.contracts import RunMetadata, RunResult, Status, empty_run_result, to_payload
-from dash_app.runner.orchestrator import run_all_checks
-from dash_app.ui.components import render_all_sections
-from dash_app.ui.layout import build_layout
+from pat_consistency_tool_dash.engine.contracts import RunMetadata, RunResult, Status, empty_run_result, to_payload
+from pat_consistency_tool_dash.runner.orchestrator import run_all_checks
+from pat_consistency_tool_dash.ui.components import render_all_sections
+from pat_consistency_tool_dash.ui.layout import build_layout
 
 logger = logging.getLogger(__name__)
 

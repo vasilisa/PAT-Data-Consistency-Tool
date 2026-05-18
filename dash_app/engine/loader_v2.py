@@ -42,6 +42,8 @@ WIKI_TABLES = [
 AGG_DATASET_NAME = "tbl_DetailedData_Agg"
 AGG_RECIPE_NAME  = "compute_tbl_DetailedData_Agg"
 DEFAULT_AGG_FALLBACK_CONNECTION = "GDP_Snowflake_DKUS_Storage_COG_ACTUARIAL"
+DEFAULT_AGG_FALLBACK_DATABASE = "GDP_EU_COG_ACTUARIAL_REF_PROD_DB"
+DEFAULT_AGG_FALLBACK_SCHEMA = "REF_EMIR_ACTUARIAL"
 
 _RUNTIME_NOTES: list[str] = []
 
@@ -127,6 +129,15 @@ def _get_agg_output_spec(project: Any, dataiku_module: Any) -> tuple[str, dict[s
     for drop_key in ("partitioning", "skipRows", "maxRows", "filterQuery"):
         output_params.pop(drop_key, None)
     return output_type, output_params
+
+
+def _build_fallback_agg_output_params(output_params: dict[str, Any]) -> dict[str, Any]:
+    """Force the fallback Snowflake destination to the approved database/schema."""
+    fallback_params = dict(output_params)
+    fallback_params["connection"] = DEFAULT_AGG_FALLBACK_CONNECTION
+    fallback_params["database"] = DEFAULT_AGG_FALLBACK_DATABASE
+    fallback_params["schema"] = DEFAULT_AGG_FALLBACK_SCHEMA
+    return fallback_params
 
 def _get_recipe_output_refs(recipe: Any) -> set[str]:
     """Return flattened output dataset refs for a recipe."""
@@ -219,8 +230,7 @@ def _create_agg_recipe(project: Any, output_type: str, output_params: dict[str, 
             )
 
             if connection != DEFAULT_AGG_FALLBACK_CONNECTION:
-                fallback_params = dict(output_params)
-                fallback_params["connection"] = DEFAULT_AGG_FALLBACK_CONNECTION
+                fallback_params = _build_fallback_agg_output_params(output_params)
                 logger.warning(
                     "Dataset creation on %s failed; retrying on fallback connection %s",
                     connection,

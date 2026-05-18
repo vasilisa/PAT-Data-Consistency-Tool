@@ -13,8 +13,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from dash_app.engine.contracts import RunResult, SectionResult, Status
-from dash_app.runner.orchestrator import (
+from pat_consistency_tool_dash.engine.contracts import RunResult, SectionResult, Status
+from pat_consistency_tool_dash.runner.orchestrator import (
     _build_section1,
     _build_section3,
     _build_section5,
@@ -160,8 +160,8 @@ class TestRunAllChecks:
 
     def test_returns_run_result(self, minimal_datasets):
         with (
-            patch("dash_app.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
-            patch("dash_app.runner.orchestrator.classify_tables") as mock_classify,
+            patch("pat_consistency_tool_dash.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
+            patch("pat_consistency_tool_dash.runner.orchestrator.classify_tables") as mock_classify,
         ):
             dd = minimal_datasets["tbl_DetailedData"]
             mapping = minimal_datasets["tbl_Key_Mapping"]
@@ -174,8 +174,8 @@ class TestRunAllChecks:
 
     def test_result_has_five_sections(self, minimal_datasets):
         with (
-            patch("dash_app.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
-            patch("dash_app.runner.orchestrator.classify_tables") as mock_classify,
+            patch("pat_consistency_tool_dash.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
+            patch("pat_consistency_tool_dash.runner.orchestrator.classify_tables") as mock_classify,
         ):
             dd = minimal_datasets["tbl_DetailedData"]
             mapping = minimal_datasets["tbl_Key_Mapping"]
@@ -188,8 +188,8 @@ class TestRunAllChecks:
 
     def test_status_is_valid_enum(self, minimal_datasets):
         with (
-            patch("dash_app.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
-            patch("dash_app.runner.orchestrator.classify_tables") as mock_classify,
+            patch("pat_consistency_tool_dash.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
+            patch("pat_consistency_tool_dash.runner.orchestrator.classify_tables") as mock_classify,
         ):
             dd = minimal_datasets["tbl_DetailedData"]
             mapping = minimal_datasets["tbl_Key_Mapping"]
@@ -202,8 +202,8 @@ class TestRunAllChecks:
 
     def test_metadata_populated(self, minimal_datasets):
         with (
-            patch("dash_app.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
-            patch("dash_app.runner.orchestrator.classify_tables") as mock_classify,
+            patch("pat_consistency_tool_dash.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
+            patch("pat_consistency_tool_dash.runner.orchestrator.classify_tables") as mock_classify,
         ):
             dd = minimal_datasets["tbl_DetailedData"]
             mapping = minimal_datasets["tbl_Key_Mapping"]
@@ -218,7 +218,7 @@ class TestRunAllChecks:
 
     def test_fatal_loader_error_returns_fail(self):
         with patch(
-            "dash_app.runner.orchestrator.load_tbl_datasets",
+            "pat_consistency_tool_dash.runner.orchestrator.load_tbl_datasets",
             side_effect=RuntimeError("dataset not found"),
         ):
             result = run_all_checks()
@@ -228,9 +228,9 @@ class TestRunAllChecks:
 
     def test_loader_runtime_notes_are_included_in_warnings(self, minimal_datasets):
         with (
-            patch("dash_app.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
-            patch("dash_app.runner.orchestrator.consume_runtime_notes", return_value=["loader used fallback connection"]),
-            patch("dash_app.runner.orchestrator.classify_tables") as mock_classify,
+            patch("pat_consistency_tool_dash.runner.orchestrator.load_tbl_datasets", return_value=minimal_datasets),
+            patch("pat_consistency_tool_dash.runner.orchestrator.consume_runtime_notes", return_value=["loader used fallback connection"]),
+            patch("pat_consistency_tool_dash.runner.orchestrator.classify_tables") as mock_classify,
         ):
             dd = minimal_datasets["tbl_DetailedData"]
             mapping = minimal_datasets["tbl_Key_Mapping"]

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from dash_app.engine.helpers import (
+from pat_consistency_tool_dash.engine.helpers import (
     PATTERN_TABLES,
     STRUCTURAL_COLS,
     find_parent_cols,

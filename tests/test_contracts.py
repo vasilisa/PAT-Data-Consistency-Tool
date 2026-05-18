@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from dash_app.engine.contracts import (
+from pat_consistency_tool_dash.engine.contracts import (
     CheckResult,
     RunMetadata,
     RunResult,

@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from dash_app.engine.checks import (
+from pat_consistency_tool_dash.engine.checks import (
     check_key_modelling_unmapped,
     check_key_registration,
     check_mapping_uniqueness,
@@ -16,8 +16,8 @@ from dash_app.engine.checks import (
     check_row_uniqueness,
     check_value_ranges,
 )
-from dash_app.engine.contracts import CheckResult, RunMetadata, RunResult, SectionResult, Status
-from dash_app.engine.loader_v2 import classify_tables, consume_runtime_notes, load_tbl_datasets
+from pat_consistency_tool_dash.engine.contracts import CheckResult, RunMetadata, RunResult, SectionResult, Status
+from pat_consistency_tool_dash.engine.loader_v2 import classify_tables, consume_runtime_notes, load_tbl_datasets
 
 logger = logging.getLogger(__name__)
 

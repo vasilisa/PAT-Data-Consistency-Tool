@@ -10,7 +10,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from dash_app.engine.checks import (
+from pat_consistency_tool_dash.engine.checks import (
     check_key_registration,
     check_referential_integrity,
     check_row_uniqueness,

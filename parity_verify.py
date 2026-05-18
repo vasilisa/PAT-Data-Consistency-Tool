@@ -8,7 +8,7 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-from dash_app.engine.checks import (
+from pat_consistency_tool_dash.engine.checks import (
     check_key_modelling_unmapped as new_check_key_modelling_unmapped,
     check_key_registration as new_check_key_registration,
     check_mapping_uniqueness as new_check_mapping_uniqueness,
@@ -17,7 +17,7 @@ from dash_app.engine.checks import (
     check_row_uniqueness as new_check_row_uniqueness,
     check_value_ranges as new_check_value_ranges,
 )
-from dash_app.engine.loader_v2 import classify_tables
+from pat_consistency_tool_dash.engine.loader_v2 import classify_tables
 
 ROOT = Path(__file__).resolve().parent
 MOCK_DIR = ROOT / "mock_data"

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dash import html
 
-from dash_app.ui.components import _records_table, render_section5
+from pat_consistency_tool_dash.ui.components import _records_table, render_section5
 
 
 def _collect_text(node) -> list[str]:

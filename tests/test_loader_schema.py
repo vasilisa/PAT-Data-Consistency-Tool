@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dash_app.engine import loader_v2 as loader
+from pat_consistency_tool_dash.engine import loader_v2 as loader
 
 
 class _FakeDataset:
@@ -227,7 +227,7 @@ class TestCreateAggRecipeFallback:
 
         class _FakeProject:
             def __init__(self):
-                self.create_dataset_connections = []
+                self.create_dataset_calls = []
                 self._new_recipe_calls = 0
 
             def new_recipe(self, _kind):
@@ -235,8 +235,8 @@ class TestCreateAggRecipeFallback:
                 return _FakeCreator(create_raises=self._new_recipe_calls == 1)
 
             def create_dataset(self, _name, _typ, _params):
+                self.create_dataset_calls.append(dict(_params))
                 conn = _params["connection"]
-                self.create_dataset_connections.append(conn)
                 if conn != loader.DEFAULT_AGG_FALLBACK_CONNECTION:
                     raise RuntimeError("permission denied")
 
@@ -246,10 +246,12 @@ class TestCreateAggRecipeFallback:
         recipe = loader._create_agg_recipe(project, "Snowflake", output_params)
 
         assert recipe is not None
-        assert project.create_dataset_connections == [
+        assert [call["connection"] for call in project.create_dataset_calls] == [
             "GDP_Snowflake_EMEA_RAWActuarial_PROD",
             loader.DEFAULT_AGG_FALLBACK_CONNECTION,
         ]
+        assert project.create_dataset_calls[-1]["database"] == loader.DEFAULT_AGG_FALLBACK_DATABASE
+        assert project.create_dataset_calls[-1]["schema"] == loader.DEFAULT_AGG_FALLBACK_SCHEMA
 
     def test_records_runtime_note_when_fallback_connection_is_used(self):
         loader.consume_runtime_notes()
