@@ -42,8 +42,8 @@ WIKI_TABLES = [
 AGG_DATASET_NAME = "tbl_DetailedData_Agg"
 AGG_RECIPE_NAME  = "compute_tbl_DetailedData_Agg"
 DEFAULT_AGG_FALLBACK_CONNECTION = "GDP_Snowflake_DKUS_Storage_COG_ACTUARIAL"
-DEFAULT_AGG_FALLBACK_DATABASE = "GDP_EU_COG_ACTUARIAL_REF_PROD_DB"
-DEFAULT_AGG_FALLBACK_SCHEMA = "REF_EMIR_ACTUARIAL"
+DEFAULT_AGG_FALLBACK_DATABASE   = "GDP_EU_COG_ACTUARIAL_REF_PROD_DB"
+DEFAULT_AGG_FALLBACK_SCHEMA     = "REF_EMIR_ACTUARIAL"
 
 _RUNTIME_NOTES: list[str] = []
 
@@ -122,8 +122,8 @@ def _sync_agg_output_schema(group_cols: list[str]) -> None:
 def _get_agg_output_spec(project: Any, dataiku_module: Any) -> tuple[str, dict[str, Any]]:
     """Return output type/params for the aggregated DetailedData dataset."""
     dd_raw = project.get_dataset("tbl_DetailedData").get_settings().get_raw()
-    project_key = dataiku_module.default_project_key()
-    output_type = str(dd_raw["type"])
+    project_key   = dataiku_module.default_project_key()
+    output_type   = str(dd_raw["type"])
     output_params = dict(dd_raw["params"])
     output_params["table"] = f"{project_key}_TBL_DETAILEDDATA_AGG"
     for drop_key in ("partitioning", "skipRows", "maxRows", "filterQuery"):
@@ -226,6 +226,18 @@ def _create_agg_recipe(project: Any, output_type: str, output_params: dict[str, 
     creator = project.new_recipe("grouping")
     creator.set_name(AGG_RECIPE_NAME)
     creator.with_input("tbl_DetailedData")
+
+    # Extract connection details from dd_raw['params']
+    connection_name = output_params.get('params', {}).get('connection', '<unknown>')
+    catalog = output_params.get('params', {}).get('catalog', '<unknown>')
+    schema = output_params.get('params', {}).get('schema', '<unknown>')
+
+    # Force the extracted connection details in with_new_output
+    creator.with_new_output(
+        AGG_DATASET_NAME,
+        f"{connection_name}",
+        override_sql_schema=schema
+    )
 
     try:
         creator.with_new_output(AGG_DATASET_NAME, output_type)
