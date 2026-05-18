@@ -75,6 +75,19 @@ In all branches, loader then:
 - Explicit schema sync before build: prevents empty-output schema issues in DSS/Snowflake flows.
 - Optional table tolerance: missing optional `tbl_*` tables are skipped.
 
+## Snowflake Connection Handling
+
+The Snowflake connection is managed by the loader logic in `loader_v2.py`:
+
+- Connection details (`connection`, `catalog`, `schema`) are extracted from the Dataiku dataset settings (`dd_raw['params']`).
+- The loader enforces these parameters when creating or binding the `tbl_DetailedData_Agg` dataset and its recipe.
+- If the primary connection fails, fallback parameters are used to ensure the dataset is created on a known-good Snowflake connection, database, and schema.
+- Drift detection logic checks if the dataset metadata points to the wrong database or schema and triggers recreation if needed.
+- The loader uses Dataiku's `with_new_output` or `with_output` to bind the recipe to the correct Snowflake dataset, and explicitly syncs the schema before building.
+- Physical Snowflake table cleanup is handled with `SQLExecutor2` if required.
+
+This ensures robust, automated management of the Snowflake connection and dataset lifecycle, with fallback and recovery for common failure scenarios.
+
 ## Verification Status (Current)
 
 - Unit tests: passing (`tests/`)
