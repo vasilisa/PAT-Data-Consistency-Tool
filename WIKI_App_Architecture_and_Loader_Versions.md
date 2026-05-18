@@ -12,6 +12,7 @@ This wiki explains:
 Latest update:
 
 - 2026-05-12: notebook/webapp parity update for Check 4 `tbl_Trend` uniqueness, Check 8 Key_Modelling breakdown rendering, scrollable dataset output tables in the UI, and supporting tests.
+- 2026-05-15: Loader ghost-dataset fix for `tbl_DetailedData_Agg` lifecycle. Recipe creation now binds to existing datasets when recipe is missing.
 
 
 ## App Architecture
