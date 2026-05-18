@@ -135,6 +135,7 @@ def _build_fallback_agg_output_params(output_params: dict[str, Any]) -> dict[str
     """Force the fallback Snowflake destination to the approved database/schema."""
     fallback_params = dict(output_params)
     fallback_params["connection"] = DEFAULT_AGG_FALLBACK_CONNECTION
+    fallback_params["db"] = DEFAULT_AGG_FALLBACK_DATABASE
     fallback_params["database"] = DEFAULT_AGG_FALLBACK_DATABASE
     fallback_params["schema"] = DEFAULT_AGG_FALLBACK_SCHEMA
     return fallback_params

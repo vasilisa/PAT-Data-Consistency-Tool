@@ -250,6 +250,7 @@ class TestCreateAggRecipeFallback:
             "GDP_Snowflake_EMEA_RAWActuarial_PROD",
             loader.DEFAULT_AGG_FALLBACK_CONNECTION,
         ]
+        assert project.create_dataset_calls[-1]["db"] == loader.DEFAULT_AGG_FALLBACK_DATABASE
         assert project.create_dataset_calls[-1]["database"] == loader.DEFAULT_AGG_FALLBACK_DATABASE
         assert project.create_dataset_calls[-1]["schema"] == loader.DEFAULT_AGG_FALLBACK_SCHEMA
 
