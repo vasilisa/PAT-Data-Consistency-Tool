@@ -87,6 +87,34 @@ class TestSyncAggOutputSchema:
         assert fake_dataiku[loader.AGG_DATASET_NAME]["written_schema"] == expected_schema
 
 
+class TestFallbackTargetDrift:
+
+    def test_true_when_fallback_connection_points_to_wrong_db(self):
+        params = {
+            "connection": loader.DEFAULT_AGG_FALLBACK_CONNECTION,
+            "catalog": "GDP_EU_EMEAACTUARIAL_RAW_PROD_DB",
+            "schema": loader.DEFAULT_AGG_FALLBACK_SCHEMA,
+        }
+        assert loader._is_fallback_target_drifted(params) is True
+
+    def test_false_when_fallback_connection_points_to_expected_db_schema(self):
+        params = {
+            "connection": loader.DEFAULT_AGG_FALLBACK_CONNECTION,
+            "catalog": loader.DEFAULT_AGG_FALLBACK_DATABASE,
+            "db": loader.DEFAULT_AGG_FALLBACK_DATABASE,
+            "schema": loader.DEFAULT_AGG_FALLBACK_SCHEMA,
+        }
+        assert loader._is_fallback_target_drifted(params) is False
+
+    def test_false_when_not_on_fallback_connection(self):
+        params = {
+            "connection": "GDP_Snowflake_EMEA_RAWActuarial_PROD",
+            "catalog": "GDP_EU_EMEAACTUARIAL_RAW_PROD_DB",
+            "schema": "RAW_EU_DKUACTUARIAL1",
+        }
+        assert loader._is_fallback_target_drifted(params) is False
+
+
 class TestEnsureDdAggregatedSchemaHook:
 
     def test_calls_schema_sync_before_build(self, monkeypatch):
@@ -250,6 +278,7 @@ class TestCreateAggRecipeFallback:
             "GDP_Snowflake_EMEA_RAWActuarial_PROD",
             loader.DEFAULT_AGG_FALLBACK_CONNECTION,
         ]
+        assert project.create_dataset_calls[-1]["catalog"] == loader.DEFAULT_AGG_FALLBACK_DATABASE
         assert project.create_dataset_calls[-1]["db"] == loader.DEFAULT_AGG_FALLBACK_DATABASE
         assert project.create_dataset_calls[-1]["database"] == loader.DEFAULT_AGG_FALLBACK_DATABASE
         assert project.create_dataset_calls[-1]["schema"] == loader.DEFAULT_AGG_FALLBACK_SCHEMA

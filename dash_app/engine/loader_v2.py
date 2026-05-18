@@ -135,10 +135,32 @@ def _build_fallback_agg_output_params(output_params: dict[str, Any]) -> dict[str
     """Force the fallback Snowflake destination to the approved database/schema."""
     fallback_params = dict(output_params)
     fallback_params["connection"] = DEFAULT_AGG_FALLBACK_CONNECTION
+    fallback_params["catalog"] = DEFAULT_AGG_FALLBACK_DATABASE
     fallback_params["db"] = DEFAULT_AGG_FALLBACK_DATABASE
     fallback_params["database"] = DEFAULT_AGG_FALLBACK_DATABASE
     fallback_params["schema"] = DEFAULT_AGG_FALLBACK_SCHEMA
     return fallback_params
+
+
+def _is_fallback_target_drifted(dataset_params: dict[str, Any]) -> bool:
+    """Return True when agg dataset metadata on fallback connection targets the wrong DB/schema."""
+    if dataset_params.get("connection") != DEFAULT_AGG_FALLBACK_CONNECTION:
+        return False
+
+    expected_db = DEFAULT_AGG_FALLBACK_DATABASE
+    expected_schema = DEFAULT_AGG_FALLBACK_SCHEMA
+
+    catalog = dataset_params.get("catalog")
+    db = dataset_params.get("db") or dataset_params.get("database")
+    schema_nm = dataset_params.get("schema")
+
+    if catalog and catalog != expected_db:
+        return True
+    if db and db != expected_db:
+        return True
+    if schema_nm and schema_nm != expected_schema:
+        return True
+    return False
 
 def _get_recipe_output_refs(recipe: Any) -> set[str]:
     """Return flattened output dataset refs for a recipe."""
@@ -300,6 +322,19 @@ def _create_agg_recipe_with_existing_output(project: Any) -> Any:
     )
     return recipe
 
+
+def _create_agg_dataset_with_params(project: Any, output_type: str, output_params: dict[str, Any]) -> None:
+    """Create agg dataset with explicit output params."""
+    project.create_dataset(AGG_DATASET_NAME, output_type, output_params)
+    logger.info(
+        "Created dataset %s on connection=%s catalog=%s db=%s schema=%s",
+        AGG_DATASET_NAME,
+        output_params.get("connection"),
+        output_params.get("catalog"),
+        output_params.get("db") or output_params.get("database"),
+        output_params.get("schema"),
+    )
+
 def _configure_agg_recipe(recipe: Any, group_cols: list[str]) -> None:
     """Apply current grouping and aggregation settings to the agg recipe."""
     settings = recipe.get_settings()
@@ -373,6 +408,7 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
     recipe_exists = AGG_RECIPE_NAME in existing_recipes
     group_cols = _get_dd_group_cols(loaded_ref_tables)
     recipe_points_to_agg = False
+    fallback_target_drift = False
     recipe = None
 
     if recipe_exists:
@@ -385,6 +421,21 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
             recipe_points_to_agg,
         )
 
+    if agg_exists:
+        try:
+            agg_settings_raw = project.get_dataset(AGG_DATASET_NAME).get_settings().get_raw()
+            agg_params = dict(agg_settings_raw.get("params", {}))
+            fallback_target_drift = _is_fallback_target_drifted(agg_params)
+            if fallback_target_drift:
+                logger.warning(
+                    "DetailedData_Agg target drift detected on fallback connection: catalog=%s db=%s schema=%s",
+                    agg_params.get("catalog"),
+                    agg_params.get("db") or agg_params.get("database"),
+                    agg_params.get("schema"),
+                )
+        except Exception:
+            logger.exception("Failed to inspect DetailedData_Agg dataset params for target drift")
+
     logger.info(
         "DetailedData_Agg ensure start: agg_exists=%s, recipe_exists=%s, recipe_points_to_agg=%s, ref_tables_loaded=%d, group_cols=%d",
         agg_exists,
@@ -395,7 +446,17 @@ def _ensure_dd_aggregated(project: Any, loaded_ref_tables: dict[str, pd.DataFram
     )
     logger.debug("DetailedData_Agg group columns: %s", group_cols)
 
-    if not recipe_exists:
+    if fallback_target_drift:
+        logger.warning("DetailedData_Agg branch selected: fallback_target_recreate")
+        if recipe_exists:
+            _delete_agg_recipe(project)
+        if agg_exists:
+            _delete_agg_dataset(project)
+        output_type, output_params = _get_agg_output_spec(project, dataiku)
+        fallback_params = _build_fallback_agg_output_params(output_params)
+        _create_agg_dataset_with_params(project, output_type, fallback_params)
+        recipe = _create_agg_recipe_with_existing_output(project)
+    elif not recipe_exists:
         if agg_exists:
             logger.warning("DetailedData_Agg branch selected: ghost_dataset_recreate")
             logger.warning(
